@@ -299,6 +299,11 @@ export default function App() {
         setDossier(compiledDossier);
       }
 
+      // Flush any buffered UTF-8 bytes.
+      compiledDossier += synthDecoder.decode();
+      setDossier(compiledDossier);
+      synthReader.releaseLock();
+
       if (!compiledDossier.trim()) {
         throw new Error('Synthesis returned an empty dossier — try again or pick a different synthesizer model.');
       }
