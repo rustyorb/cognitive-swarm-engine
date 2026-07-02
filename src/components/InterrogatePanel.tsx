@@ -56,8 +56,9 @@ export function InterrogatePanel({ runId, query, dossier, findings, config }: In
     const question = raw.trim();
     if (!question || busy) return;
 
-    // History = the turns BEFORE this question.
-    const history = messages;
+    // History = the turns BEFORE this question, minus any error placeholders
+    // (those aren't real assistant answers and would pollute the grounding).
+    const history = messages.filter(m => !(m.role === 'assistant' && m.content.startsWith('__ERROR__')));
 
     setMessages(prev => [...prev, { role: 'user', content: question }]);
     setInput('');
@@ -105,13 +106,15 @@ export function InterrogatePanel({ runId, query, dossier, findings, config }: In
       }
 
       accumulated += decoder.decode();
-      const final = accumulated;
+      reader.releaseLock();
+      const final = accumulated.trim()
+        ? accumulated
+        : '__ERROR__The swarm returned an empty response — try again or pick a different synthesizer model.';
       setMessages(prev => {
         const next = [...prev];
         next[next.length - 1] = { role: 'assistant', content: final };
         return next;
       });
-      reader.releaseLock();
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
       setMessages(prev => [...prev, { role: 'assistant', content: `__ERROR__${err.message || 'Unknown error'}` }]);
