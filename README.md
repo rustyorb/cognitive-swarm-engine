@@ -333,11 +333,15 @@ cognitive-swarm-engine/
 - [x] Human-in-the-loop swarm editing (Swarm Director)
 - [x] Live swarm graph visualization (Constellation)
 - [x] Conversational dossier Q&A (Interrogate the Swarm)
-- [x] Web-grounded research with citations (native Gemini + Brave/Serply)
+- [x] Web-grounded research with citations (native Gemini + Brave/Serply/SearXNG)
 - [x] Audience lenses for the dossier
-- [ ] Export dossier to PDF
-- [ ] Persist Q&A threads with run history
+- [x] Investigative mode + exploratory (web-searching) interrogation
+- [x] Agentic tool-use web search (real `web_search` function tool)
+- [x] Editable prompts in the config panel
+- [x] Export dossier to PDF + full research bundle
+- [x] Persist Q&A threads with run history
 - [ ] Shareable run permalinks
+- [ ] Live search activity in the telemetry HUD
 
 ---
 
