@@ -83,6 +83,18 @@ export default function App() {
     }
   }, [phase]);
 
+  // Warn before a reload/navigation wipes an in-flight run (the report lives
+  // in memory until synthesis completes).
+  useEffect(() => {
+    if (!isRunning) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [isRunning]);
+
   const updateAgentState = (id: string, updates: Partial<AgentExecutionState>) => {
     setAgentStates(prev => ({
       ...prev,
@@ -271,11 +283,33 @@ export default function App() {
       });
 
       if (!syncRes.ok) throw new Error(`Synthesis failed: ${await syncRes.text()}`);
-      const syncData = await syncRes.json();
+      if (!syncRes.body) throw new Error('No synthesis stream body');
 
-      setDossier(syncData.dossier);
+      // Stream the dossier so it renders as it compiles instead of appearing
+      // all at once at the very end (and never silently ending empty).
+      const synthReader = syncRes.body.getReader();
+      const synthDecoder = new TextDecoder('utf-8');
+      let compiledDossier = '';
+      setDossier('');
+
+      while (true) {
+        const { done, value } = await synthReader.read();
+        if (done) break;
+        compiledDossier += synthDecoder.decode(value, { stream: true });
+        setDossier(compiledDossier);
+      }
+
+      // Flush any buffered UTF-8 bytes.
+      compiledDossier += synthDecoder.decode();
+      setDossier(compiledDossier);
+      synthReader.releaseLock();
+
+      if (!compiledDossier.trim()) {
+        throw new Error('Synthesis returned an empty dossier — try again or pick a different synthesizer model.');
+      }
+
       setPhase('DONE');
-      saveRunToHistory(query, syncData.dossier);
+      saveRunToHistory(query, compiledDossier);
 
     } catch (err: any) {
       console.error(err);
