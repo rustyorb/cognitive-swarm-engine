@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { BrainCircuit, Cpu, Zap, Binary, Check, Database, Settings, Copy, Download, History, X, ChevronDown, ChevronUp, LayoutGrid, Waypoints, Globe, Telescope, Fingerprint, Printer } from 'lucide-react';
+import { BrainCircuit, Cpu, Zap, Binary, Check, Database, Settings, Copy, Download, History, X, ChevronDown, ChevronUp, LayoutGrid, Waypoints, Globe, Telescope, Fingerprint, Printer, Package } from 'lucide-react';
 import { AgentProfile, AgentExecutionState, AppConfig } from './types';
 import { AgentCard } from './components/AgentCard';
 import { ConfigPanel } from './components/ConfigPanel';
@@ -264,6 +264,32 @@ export default function App() {
     w.document.close();
     w.focus();
     setTimeout(() => w.print(), 250);
+  };
+
+  // Export a complete research bundle: dossier + every specialist's findings +
+  // the interrogation Q&A, as one archival markdown file.
+  const handleExportBundle = () => {
+    if (!dossier) return;
+    const findings = Object.values(agentStates).filter(s => s.state === 'RESOLVED' && s.result);
+    const msgs = history.find(r => r.id === activeRunId)?.messages || [];
+    let md = `# Research Bundle\n\n> **Query:** ${query}\n> **Generated:** ${new Date().toLocaleString()}\n\n---\n\n## Compiled Dossier\n\n${dossier}\n`;
+    if (findings.length) {
+      md += `\n---\n\n## Specialist Findings\n\n` +
+        findings.map(s => `### ${s.profile.designation}\n\n${s.result}`).join('\n\n---\n\n');
+    }
+    if (msgs.length) {
+      md += `\n\n---\n\n## Interrogation\n\n` +
+        msgs.map(m => (m.role === 'user' ? `**Q:** ${m.content}` : `**A:** ${m.content}`)).join('\n\n');
+    }
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `swarm-research-bundle-${Date.now()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   // Re-render the finished dossier through a "lens" (executive brief, ELI5, …).
@@ -762,6 +788,14 @@ export default function App() {
                   title="Print / Save as PDF"
                 >
                   <Printer className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportBundle}
+                  className="p-1.5 text-stone-400 hover:text-phosphor-400 hover:bg-phosphor-950/20 rounded border border-stone-800 hover:border-phosphor-900/50 transition-all bg-black"
+                  title="Export full research bundle (dossier + findings + Q&A)"
+                >
+                  <Package className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
