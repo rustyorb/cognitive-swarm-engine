@@ -243,12 +243,19 @@ export default function App() {
       reader.releaseLock();
       setLensCache(prev => ({ ...prev, [lens]: acc || '_(empty response)_' }));
     } catch (err: any) {
-      if (err?.name !== 'AbortError') {
+      if (err?.name === 'AbortError') {
+        // Discard the partial so re-selecting this lens streams a full version.
+        setLensCache(prev => { const next = { ...prev }; delete next[lens]; return next; });
+      } else {
         setLensCache(prev => ({ ...prev, [lens]: `**Lens error:** ${err.message || 'Unknown error'}` }));
       }
     } finally {
-      setLensStreaming(false);
-      lensAbortRef.current = null;
+      // Only clear shared state if this invocation still owns the request
+      // (a newer lens may have replaced the ref while this one was aborting).
+      if (lensAbortRef.current === controller) {
+        setLensStreaming(false);
+        lensAbortRef.current = null;
+      }
     }
   };
 
