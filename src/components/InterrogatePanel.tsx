@@ -35,20 +35,26 @@ export function InterrogatePanel({ runId, query, dossier, findings, config, init
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialRef = useRef(initialMessages);
   initialRef.current = initialMessages;
+  const seededRef = useRef(false); // suppress the persist write caused by a reseed
 
   // Reset the thread whenever a different dossier is shown — seeding from any
   // saved conversation for that run.
+  // NOTE: deps are intentionally [runId] ONLY. Adding initialMessages here would
+  // create an infinite loop (persist → history changes → new prop → reseed → …).
   useEffect(() => {
     abortRef.current?.abort();
     abortRef.current = null;
+    seededRef.current = true;
     setMessages(initialRef.current || []);
     setInput('');
     setBusy(false);
   }, [runId]);
 
-  // Persist the conversation up to the parent after each completed turn.
-  // (Skip empty so switching runs never clobbers a saved conversation.)
+  // Persist the conversation up to the parent after each completed turn. Skip the
+  // reseed-triggered change (don't write a loaded thread straight back) and skip
+  // empty (so switching runs never clobbers a saved conversation).
   useEffect(() => {
+    if (seededRef.current) { seededRef.current = false; return; }
     if (!busy && messages.length) onMessagesChange?.(messages);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, busy]);

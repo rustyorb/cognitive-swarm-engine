@@ -245,7 +245,7 @@ export default function App() {
     const w = window.open('', '_blank', 'width=850,height=1100');
     if (!w) return;
     const title = (shownDossier || 'Dossier').replace(/^#\s*/, '').split('\n')[0].slice(0, 80);
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Dossier</title><style>
       * { box-sizing: border-box; }
       body { font-family: Georgia, 'Times New Roman', serif; color: #1a1a1a; max-width: 46rem; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; }
       h1, h2, h3, h4 { font-family: 'Helvetica Neue', Arial, sans-serif; line-height: 1.25; margin-top: 1.6em; color: #111; }
@@ -262,6 +262,9 @@ export default function App() {
       @media print { body { margin: 0; max-width: none; } a { color: #333; } }
     </style></head><body><article>${el.innerHTML}</article></body></html>`);
     w.document.close();
+    // Set the title via the DOM (not string interpolation) so a heading can't
+    // break out of the <title> element.
+    w.document.title = title;
     w.focus();
     setTimeout(() => w.print(), 250);
   };
