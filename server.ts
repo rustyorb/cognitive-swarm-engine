@@ -196,6 +196,7 @@ interface AgentProfileLike {
   designation: string;
   system_prompt: string;
   geometric_avatar_seed: string;
+  search_query?: string;
 }
 
 function normalizeAgents(raw: any[]): AgentProfileLike[] {
@@ -222,12 +223,14 @@ function normalizeAgents(raw: any[]): AgentProfileLike[] {
     seenIds.add(id);
 
     const seed = entry.geometric_avatar_seed != null ? String(entry.geometric_avatar_seed).trim() : "";
+    const searchQuery = entry.search_query != null ? String(entry.search_query).trim() : "";
 
     agents.push({
       id,
       designation,
       system_prompt: systemPrompt,
-      geometric_avatar_seed: seed || id
+      geometric_avatar_seed: seed || id,
+      ...(searchQuery ? { search_query: searchQuery } : {})
     });
 
     if (agents.length >= 8) break;
@@ -266,9 +269,10 @@ async function generateUnifiedText(params: {
                 id: { type: Type.STRING },
                 designation: { type: Type.STRING },
                 system_prompt: { type: Type.STRING },
-                geometric_avatar_seed: { type: Type.STRING }
+                geometric_avatar_seed: { type: Type.STRING },
+                search_query: { type: Type.STRING }
               },
-              required: ["id", "designation", "system_prompt", "geometric_avatar_seed"]
+              required: ["id", "designation", "system_prompt", "geometric_avatar_seed", "search_query"]
             }
           }
         } : {})
@@ -685,7 +689,8 @@ async function startServer() {
       "id": "unique_slug",
       "designation": "Specialist Designation",
       "system_prompt": "comprehensive instructions for this specialist to perform deep research on this specific dimension",
-      "geometric_avatar_seed": "any_short_seed"
+      "geometric_avatar_seed": "any_short_seed",
+      "search_query": "3-8 keyword web search for this specialist's angle, no boilerplate"
     }
   ]
 }`;
@@ -749,7 +754,15 @@ async function startServer() {
       } else {
         let finalPrompt = specialistPrompt;
         if (grounding && provider !== "gemini") {
-          manualResults = await webSearch(`${query} ${agent.designation}`);
+          // Prefer the orchestrator's targeted per-specialist search_query. Fall
+          // back to a cleaned, truncated topic + angle if it wasn't provided
+          // (e.g. a user-added agent or an older model that skipped the field).
+          const fallback = `${query.replace(/[#*_`>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 160)} ${agent.designation}`.replace(/\s+/g, " ").trim();
+          const searchQuery = (typeof agent.search_query === "string" && agent.search_query.trim())
+            ? agent.search_query.trim()
+            : fallback;
+          // Comma-separated lists search poorly; flatten to a single phrase.
+          manualResults = await webSearch(searchQuery.replace(/[,;]+/g, " ").replace(/\s+/g, " ").trim());
           if (manualResults.length) {
             // Snippets come from third-party search APIs and are attacker-influenceable.
             // Neutralize prompt-fence breakouts and flatten before injecting.
