@@ -12,11 +12,17 @@ import { InterrogatePanel } from './components/InterrogatePanel';
 type Phase = 'IDLE' | 'ORCHESTRATING' | 'REVIEW' | 'EXECUTING' | 'SYNTHESIZING' | 'DONE' | 'ERROR';
 type ViewMode = 'grid' | 'constellation';
 
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 interface RunRecord {
   id: string;
   query: string;
   dossier: string;
   timestamp: number;
+  messages?: ChatMessage[];
 }
 
 const HISTORY_KEY = 'swarm_run_history';
@@ -173,6 +179,23 @@ export default function App() {
     setActiveLens('full');
     setLensCache({});
     setLensStreaming(false);
+  };
+
+  // Persist an interrogation thread onto its run record in history.
+  const updateRunMessages = (id: string, messages: ChatMessage[]) => {
+    if (!id) return;
+    setHistory(prev => {
+      const idx = prev.findIndex(r => r.id === id);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = { ...next[idx], messages };
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
   };
 
   const loadRun = (run: RunRecord) => {
@@ -798,6 +821,8 @@ export default function App() {
               .filter(s => s.state === 'RESOLVED' && s.result)
               .map(s => ({ designation: s.profile.designation, result: s.result as string }))}
             config={config}
+            initialMessages={history.find(r => r.id === activeRunId)?.messages}
+            onMessagesChange={(m) => updateRunMessages(activeRunId, m)}
           />
         )}
 

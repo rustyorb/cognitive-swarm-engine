@@ -4,17 +4,19 @@ import remarkGfm from 'remark-gfm';
 import { MessageCircleQuestion, Send, Sparkles } from 'lucide-react';
 import { AppConfig } from '../types';
 
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 interface InterrogatePanelProps {
   runId: string;
   query: string;
   dossier: string;
   findings: { designation: string; result: string }[];
   config: AppConfig;
-}
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
+  initialMessages?: ChatMessage[];
+  onMessagesChange?: (messages: ChatMessage[]) => void;
 }
 
 const SUGGESTIONS = [
@@ -23,23 +25,33 @@ const SUGGESTIONS = [
   "What's missing from this analysis?"
 ];
 
-export function InterrogatePanel({ runId, query, dossier, findings, config }: InterrogatePanelProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export function InterrogatePanel({ runId, query, dossier, findings, config, initialMessages, onMessagesChange }: InterrogatePanelProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages || []);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<'exploratory' | 'strict'>('exploratory');
 
   const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const initialRef = useRef(initialMessages);
+  initialRef.current = initialMessages;
 
-  // Reset the thread whenever a different dossier is shown.
+  // Reset the thread whenever a different dossier is shown — seeding from any
+  // saved conversation for that run.
   useEffect(() => {
     abortRef.current?.abort();
     abortRef.current = null;
-    setMessages([]);
+    setMessages(initialRef.current || []);
     setInput('');
     setBusy(false);
   }, [runId]);
+
+  // Persist the conversation up to the parent after each completed turn.
+  // (Skip empty so switching runs never clobbers a saved conversation.)
+  useEffect(() => {
+    if (!busy && messages.length) onMessagesChange?.(messages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, busy]);
 
   // Abort any in-flight stream if the panel unmounts (e.g., starting a new run).
   useEffect(() => {
