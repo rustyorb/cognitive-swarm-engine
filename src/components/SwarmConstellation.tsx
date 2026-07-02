@@ -85,6 +85,11 @@ export function SwarmConstellation({ agents, agentStates, phase }: SwarmConstell
         ? PALETTE.lime
         : PALETTE.phosphor;
 
+  // SMIL <animateMotion> is not covered by the CSS reduced-motion rule, so gate it here too.
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
   return (
     <div className="border border-stone-800 rounded-xl bg-black/40 p-4">
       <style>{`
@@ -201,16 +206,25 @@ export function SwarmConstellation({ agents, agentStates, phase }: SwarmConstell
                 )}
                 {/* Traveling energy pip along active or synthesizing-converging edges */}
                 {(active || (igniting && n.resolved)) && (
-                  <circle r={active ? 4 : 3} fill={igniting && n.resolved ? coreColor : n.color}>
-                    <animateMotion
-                      dur={active ? '1.1s' : '0.8s'}
-                      repeatCount="indefinite"
-                      keyPoints={igniting && n.resolved ? '1;0' : '0;1'}
-                      keyTimes="0;1"
-                      calcMode="linear"
-                      path={`M ${CX} ${CY} L ${n.x} ${n.y}`}
+                  prefersReducedMotion ? (
+                    <circle
+                      cx={(CX + n.x) / 2}
+                      cy={(CY + n.y) / 2}
+                      r={active ? 4 : 3}
+                      fill={igniting && n.resolved ? coreColor : n.color}
                     />
-                  </circle>
+                  ) : (
+                    <circle r={active ? 4 : 3} fill={igniting && n.resolved ? coreColor : n.color}>
+                      <animateMotion
+                        dur={active ? '1.1s' : '0.8s'}
+                        repeatCount="indefinite"
+                        keyPoints={igniting && n.resolved ? '1;0' : '0;1'}
+                        keyTimes="0;1"
+                        calcMode="linear"
+                        path={`M ${CX} ${CY} L ${n.x} ${n.y}`}
+                      />
+                    </circle>
+                  )
                 )}
               </g>
             );

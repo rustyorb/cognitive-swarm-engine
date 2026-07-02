@@ -40,6 +40,11 @@ export function InterrogatePanel({ runId, query, dossier, findings, config }: In
     setBusy(false);
   }, [runId]);
 
+  // Abort any in-flight stream if the panel unmounts (e.g., starting a new run).
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
   // Auto-scroll the transcript to the bottom as it grows / streams.
   useEffect(() => {
     if (transcriptRef.current) {

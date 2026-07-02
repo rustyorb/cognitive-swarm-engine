@@ -205,6 +205,7 @@ export default function App() {
     setDossier(null);
     setActiveRunId('');
 
+    abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -225,6 +226,7 @@ export default function App() {
   const handleRegenerate = async () => {
     setRegenerating(true);
     setErrorMsg(null);
+    abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     try {
