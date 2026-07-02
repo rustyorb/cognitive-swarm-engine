@@ -5,7 +5,7 @@ export interface AgentProfile {
   geometric_avatar_seed: string;
 }
 
-export type AgentState = 'PENDING' | 'GATHERING_TELEMETRY' | 'SYNTHESIZING_VECTORS' | 'RESOLVED';
+export type AgentState = 'PENDING' | 'GATHERING_TELEMETRY' | 'SYNTHESIZING_VECTORS' | 'RESOLVED' | 'ERROR';
 
 export interface AgentExecutionState {
   profile: AgentProfile;
