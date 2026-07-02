@@ -11,9 +11,9 @@ const GENERATION_TIMEOUT_MS = 300_000;
 // Generous output budget so long, multi-page dossiers are not truncated.
 const MAX_OUTPUT_TOKENS = 8192;
 
-const SYNTHESIZER_SYSTEM_PROMPT = `You are the Synthesis Node — the final intelligence that compiles a swarm of specialist research findings into a single, authoritative markdown dossier.
+const SYNTHESIZER_SYSTEM_PROMPT = `You are the Report Writer — the lead analyst of a research swarm. Each specialist has returned RAW FINDINGS from their corner of the question; your job is to WRITE the definitive report from them: select what matters, integrate across specialists, resolve overlaps and contradictions, and elevate raw research notes into authoritative, flowing prose.
 
-Produce a COMPREHENSIVE, dense, multi-page report. This is a flagship deliverable, not a summary. Requirements:
+Produce a COMPREHENSIVE, dense, multi-page report. This is the flagship deliverable — the only finished report in the pipeline. Requirements:
 
 STRUCTURE (use GitHub-flavored markdown):
 - Open with a level-1 title: "# DOSSIER: <concise title of the subject>".
@@ -645,7 +645,7 @@ async function startServer() {
         apiKey: providerDetails.apiKey,
         baseUrl: providerDetails.baseUrl,
         systemPrompt: agent.system_prompt,
-        prompt: `Conduct deep research on the following query, strictly within your specialist domain. Produce a thorough, well-structured findings brief in markdown: lead with your most important conclusions, then supporting detail with specific facts, figures, mechanisms, and named examples. Use headings, bullet points, and tables where they aid clarity. Be substantive and dense — your output feeds a synthesis node compiling a flagship dossier.\n\nQuery: ${query}`,
+        prompt: `You are ONE specialist in a research swarm, assigned a single dimension of the question. Investigate the query strictly within your domain and return your FINDINGS — the raw intelligence a separate report-writing agent will weave into the final report. You are NOT writing the finished report yourself.\n\nReport dense, specific findings: concrete claims, evidence, figures, mechanisms, named examples, causal links, and the tensions or open questions you surface. Light structure is fine (short thematic subheadings, bullets) to keep it scannable.\n\nDo NOT frame this as a standalone report: no overall title, no executive summary, no conclusion or "in summary" wrap-up — those belong to the report writer. Do not restate the whole question or stray into other specialists' territory. Stay in your lane and go deep. Substance over polish.\n\nQuery: ${query}`,
         res
       });
 
