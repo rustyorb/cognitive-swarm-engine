@@ -7,7 +7,31 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
 const MODEL_LIST_TIMEOUT_MS = 15_000;
-const GENERATION_TIMEOUT_MS = 120_000;
+const GENERATION_TIMEOUT_MS = 300_000;
+// Generous output budget so long, multi-page dossiers are not truncated.
+const MAX_OUTPUT_TOKENS = 8192;
+
+const SYNTHESIZER_SYSTEM_PROMPT = `You are the Synthesis Node — the final intelligence that compiles a swarm of specialist research findings into a single, authoritative markdown dossier.
+
+Produce a COMPREHENSIVE, dense, multi-page report. This is a flagship deliverable, not a summary. Requirements:
+
+STRUCTURE (use GitHub-flavored markdown):
+- Open with a level-1 title: "# DOSSIER: <concise title of the subject>".
+- Follow with a "## Executive Summary" — 2-4 tight paragraphs capturing the core conclusions.
+- Then a "## Key Findings" section as a bulleted list of the most important, specific takeaways.
+- Then several thematic "## " sections (one per major dimension surfaced by the specialists), each broken into "### " subsections with real analysis — not bullet dumps.
+- Use markdown TABLES wherever data, comparisons, tradeoffs, or classifications appear.
+- Include a "## Tensions & Contradictions" section reconciling where specialists disagreed or where findings pull in opposite directions.
+- Include a "## Strategic Implications & Outlook" section with forward-looking analysis.
+- Close with a "## Conclusion".
+
+QUALITY BAR:
+- Synthesize and integrate — connect findings across specialists; do not just concatenate them.
+- Preserve every substantive fact, figure, and nuance from the findings. Lose nothing important.
+- Be specific and analytical. Prefer concrete claims, numbers, and named examples over vague generalities.
+- Aim for depth: a thorough dossier of at least ~1500-2500 words when the material supports it.
+- No introductory pleasantries, no "as an AI", no meta-commentary. Start directly with the title.
+- Format immaculately: correct heading hierarchy, well-formed tables, tight prose.`;
 
 function getGeminiClient(customApiKey?: string) {
   const key = customApiKey || process.env.GEMINI_API_KEY || "";
@@ -155,6 +179,7 @@ async function generateUnifiedText(params: {
       contents: prompt,
       config: {
         systemInstruction: systemPrompt,
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
         ...(jsonMode ? {
           responseMimeType: "application/json",
           responseSchema: {
@@ -189,7 +214,7 @@ async function generateUnifiedText(params: {
       },
       body: JSON.stringify({
         model: model,
-        max_tokens: 4000,
+        max_tokens: MAX_OUTPUT_TOKENS,
         ...(systemPrompt ? { system: systemPrompt } : {}),
         messages: [{ role: "user", content: prompt }]
       }),
@@ -231,6 +256,7 @@ async function generateUnifiedText(params: {
         ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
         { role: "user", content: prompt }
       ],
+      max_tokens: MAX_OUTPUT_TOKENS,
       ...(jsonMode ? { response_format: { type: "json_object" } } : {})
     }),
     signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS)
@@ -266,7 +292,8 @@ async function pipeUnifiedStream(params: {
       model: model,
       contents: prompt,
       config: {
-        systemInstruction: systemPrompt
+        systemInstruction: systemPrompt,
+        maxOutputTokens: MAX_OUTPUT_TOKENS
       }
     });
     for await (const chunk of responseStream) {
@@ -288,7 +315,7 @@ async function pipeUnifiedStream(params: {
       },
       body: JSON.stringify({
         model: model,
-        max_tokens: 4000,
+        max_tokens: MAX_OUTPUT_TOKENS,
         ...(systemPrompt ? { system: systemPrompt } : {}),
         messages: [{ role: "user", content: prompt }],
         stream: true
@@ -355,6 +382,7 @@ async function pipeUnifiedStream(params: {
         ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
         { role: "user", content: prompt }
       ],
+      max_tokens: MAX_OUTPUT_TOKENS,
       stream: true
     }),
     signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS)
@@ -603,7 +631,7 @@ async function startServer() {
         apiKey: providerDetails.apiKey,
         baseUrl: providerDetails.baseUrl,
         systemPrompt: agent.system_prompt,
-        prompt: `Query: ${query}`,
+        prompt: `Conduct deep research on the following query, strictly within your specialist domain. Produce a thorough, well-structured findings brief in markdown: lead with your most important conclusions, then supporting detail with specific facts, figures, mechanisms, and named examples. Use headings, bullet points, and tables where they aid clarity. Be substantive and dense — your output feeds a synthesis node compiling a flagship dossier.\n\nQuery: ${query}`,
         res
       });
 
@@ -630,21 +658,31 @@ async function startServer() {
       const model = config?.models?.synthesizer?.model || "gemini-3.1-pro-preview";
       const providerDetails = config?.providers?.[provider] || { apiKey: "", baseUrl: "" };
 
-      const promptContext = results.map((r: any) => `### Agent: ${r.agent.designation}\n${r.result}`).join("\n\n");
+      const promptContext = results
+        .map((r: any) => `### Specialist: ${r.agent.designation}\n\n${r.result}`)
+        .join("\n\n---\n\n");
 
-      const text = await generateUnifiedText({
+      res.setHeader('Content-Type', 'text/plain');
+      res.setHeader('Transfer-Encoding', 'chunked');
+
+      await pipeUnifiedStream({
         provider,
         model,
         apiKey: providerDetails.apiKey,
         baseUrl: providerDetails.baseUrl,
-        systemPrompt: "Format the output utilizing a robust markdown parser supporting nested lists, data tables, and syntax-highlighted code blocks for maximum structural density. Do not include introductory pleasantries. Be precise and comprehensive.",
-        prompt: `You are the Synthesis Node. Compile the following specialized agent findings into a singular, high-density markdown dossier regarding the original query.\n\nOriginal Query: ${query}\n\nFindings:\n${promptContext}`
+        systemPrompt: SYNTHESIZER_SYSTEM_PROMPT,
+        prompt: `Compile the findings of the specialist swarm into a single authoritative dossier answering the original research query.\n\n=== ORIGINAL QUERY ===\n${query}\n\n=== SPECIALIST FINDINGS ===\n${promptContext}`,
+        res
       });
 
-      res.json({ dossier: text });
+      res.end();
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      } else {
+        res.destroy(error);
+      }
     }
   });
 

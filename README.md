@@ -111,9 +111,9 @@ sequenceDiagram
 
     C->>S: POST /api/synthesize (successful results)
     S->>L: "Compile a dossier"
-    L-->>S: markdown
-    S-->>C: 📄 dossier
-    C-->>U: rendered + saved to history
+    L-->>S: stream markdown
+    S-->>C: 📄 dossier ▓▓▓░ (streamed)
+    C-->>U: renders live + saved to history
 ```
 
 ---
@@ -289,7 +289,7 @@ cognitive-swarm-engine/
 - [x] Halt / abort control
 - [x] Dossier copy + download
 - [x] Run history persistence
-- [ ] Server-Sent Events for synthesis streaming[^1]
+- [x] Streaming synthesis[^1] — the dossier renders token-by-token as it compiles
 - [ ] Editable / re-runnable individual agents
 - [ ] Export dossier to PDF
 - [ ] Shareable run permalinks
@@ -306,4 +306,4 @@ cognitive-swarm-engine/
 
 </div>
 
-[^1]: Specialist execution already streams token-by-token; only the final synthesis step currently waits for the full response before rendering.
+[^1]: Every stage now streams — specialists during execution and the synthesizer during compilation — so a long, multi-page dossier renders progressively instead of appearing all at once at the end.
