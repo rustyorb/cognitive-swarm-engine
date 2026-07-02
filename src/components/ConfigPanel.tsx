@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppConfig, ProviderConfig } from '../types';
-import { Settings, X, Save, RefreshCw, Key, Globe, Sparkles, Server, Check } from 'lucide-react';
+import { Settings, X, Save, RefreshCw, Key, Globe, Sparkles, Server, Check, FileText, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
+import { DEFAULT_PROMPTS, PROMPT_FIELDS } from '../prompts';
 
 interface ConfigPanelProps {
   onClose: () => void;
@@ -17,6 +18,65 @@ const PROVIDERS = [
   { id: 'ollama', name: 'Ollama (Local)', placeholderKey: 'No key needed', defaultUrl: 'http://localhost:11434' },
   { id: 'lmstudio', name: 'LM Studio (Local)', placeholderKey: 'No key needed', defaultUrl: 'http://localhost:1234/v1' }
 ];
+
+interface PromptEditorRowProps {
+  label: string;
+  hint: string;
+  value: string;
+  isModified: boolean;
+  onChange: (value: string) => void;
+  onReset: () => void;
+}
+
+function PromptEditorRow({ label, hint, value, isModified, onChange, onReset }: PromptEditorRowProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="bg-black/50 border border-stone-900 p-4 rounded-lg space-y-2">
+      <div className="flex justify-between items-start gap-3">
+        <button
+          type="button"
+          onClick={() => setExpanded(v => !v)}
+          className="flex items-center gap-2 text-left group flex-1 min-w-0"
+        >
+          {expanded ? (
+            <ChevronUp className="w-4 h-4 text-stone-500 group-hover:text-phosphor-400 shrink-0 transition-colors" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-stone-500 group-hover:text-phosphor-400 shrink-0 transition-colors" />
+          )}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-stone-100">{label}</span>
+              {isModified && (
+                <span className="flex items-center gap-1 text-[10px] font-mono text-phosphor-400 uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-phosphor-400 inline-block" /> edited
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-stone-500 font-mono truncate">{hint}</p>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={!isModified}
+          className="text-xs font-mono text-phosphor-500 hover:text-phosphor-300 flex items-center gap-1 bg-phosphor-950/20 px-2 py-1 rounded border border-phosphor-900/30 transition-colors disabled:opacity-40 shrink-0"
+        >
+          <RotateCcw className="w-3 h-3" /> Reset
+        </button>
+      </div>
+
+      {expanded && (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={6}
+          className="w-full bg-black border border-stone-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-phosphor-500 font-mono resize-y"
+        />
+      )}
+    </div>
+  );
+}
 
 export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
   const [localConfig, setLocalConfig] = useState<AppConfig>(JSON.parse(JSON.stringify(config)));
@@ -152,6 +212,28 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
         updated.providers[id] = { apiKey: '', baseUrl: '' };
       }
       updated.providers[id][field] = value;
+      return updated;
+    });
+  };
+
+  const handlePromptChange = (key: string, value: string) => {
+    setLocalConfig(prev => {
+      const updated = { ...prev, prompts: { ...(prev.prompts || {}) } };
+      // Collapse "same as default" / blank back to the fallback so we never
+      // store a frozen copy that won't track future default-prompt updates.
+      if (!value.trim() || value === (DEFAULT_PROMPTS as Record<string, string>)[key]) {
+        delete updated.prompts[key];
+      } else {
+        updated.prompts[key] = value;
+      }
+      return updated;
+    });
+  };
+
+  const handlePromptReset = (key: string) => {
+    setLocalConfig(prev => {
+      const updated = { ...prev, prompts: { ...(prev.prompts || {}) } };
+      delete updated.prompts[key];
       return updated;
     });
   };
@@ -339,6 +421,34 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
                       </div>
                     )}
                   </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* System Prompts */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-mono text-phosphor-400 uppercase tracking-wider flex items-center gap-2">
+              <FileText className="w-4 h-4" /> System Prompts
+            </h3>
+            <p className="text-xs font-mono text-stone-500">
+              Edit any agent's system prompt. Blank = use the built-in default. Changes are saved with your configuration.
+            </p>
+
+            <div className="space-y-3">
+              {PROMPT_FIELDS.map(field => {
+                const value = localConfig.prompts?.[field.key] ?? DEFAULT_PROMPTS[field.key];
+                const isModified = value !== DEFAULT_PROMPTS[field.key];
+                return (
+                  <PromptEditorRow
+                    key={field.key}
+                    label={field.label}
+                    hint={field.hint}
+                    value={value}
+                    isModified={isModified}
+                    onChange={(v) => handlePromptChange(field.key, v)}
+                    onReset={() => handlePromptReset(field.key)}
+                  />
                 );
               })}
             </div>

@@ -3,6 +3,7 @@ export interface AgentProfile {
   designation: string;
   system_prompt: string;
   geometric_avatar_seed: string;
+  search_query?: string;
 }
 
 export type AgentState = 'PENDING' | 'GATHERING_TELEMETRY' | 'SYNTHESIZING_VECTORS' | 'RESOLVED' | 'ERROR';
@@ -40,5 +41,8 @@ export interface AppConfig {
     synthesizer: { provider: string; model: string };
   };
   webGrounding?: boolean;
+  investigative?: boolean;
+  prompts?: Record<string, string>;
+  _v?: number;
 }
 
