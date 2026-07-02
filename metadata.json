@@ -1,0 +1,6 @@
+{
+  "name": "Cognitive Swarm Engine",
+  "description": "Multi-Agent Research Swarm application utilizing Gemini 1.5 Pro and Flash models for parallel processing and synthesis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
