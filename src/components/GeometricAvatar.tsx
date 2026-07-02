@@ -15,12 +15,12 @@ export function GeometricAvatar({ seed, size = 48 }: GeometricAvatarProps) {
   }, [seed]);
 
   const colors = [
-    '#00ffcc', // Cyan
-    '#ff00ff', // Magenta
-    '#00ccff', // Light Blue
-    '#ff3300', // Neon Red
-    '#ccff00', // Neon Yellow
-    '#9d00ff'  // Purple
+    '#f2b035', // Phosphor Amber
+    '#fb923c', // Ember Orange
+    '#ef4444', // Signal Red
+    '#a3e635', // Terminal Lime
+    '#fde68a', // Pale Amber
+    '#e11d48'  // Hot Rose
   ];
 
   const bg = colors[hash % colors.length];

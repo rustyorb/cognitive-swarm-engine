@@ -181,15 +181,15 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-950 border border-gray-800 rounded-xl max-w-4xl w-full h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+      <div className="bg-stone-950 border border-stone-800 rounded-xl max-w-4xl w-full h-[85vh] flex flex-col overflow-hidden shadow-2xl">
         
         {/* Header */}
-        <div className="p-6 border-b border-gray-900 flex justify-between items-center bg-black/40">
-          <div className="flex items-center gap-3 text-cyan-400">
+        <div className="p-6 border-b border-stone-900 flex justify-between items-center bg-black/40">
+          <div className="flex items-center gap-3 text-phosphor-400">
             <Settings className="w-5 h-5 animate-spin-slow" />
-            <h2 className="font-mono text-lg font-bold tracking-widest uppercase">Swarm_System_Config</h2>
+            <h2 className="font-display text-lg font-bold tracking-widest uppercase">Swarm_System_Config</h2>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-stone-500 hover:text-white transition-colors">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -198,8 +198,8 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
           
           {/* Node Model Mapping Controls */}
-          <div className="bg-gray-900/40 border border-gray-900 p-5 rounded-lg space-y-4">
-            <h3 className="text-sm font-mono text-cyan-400 uppercase tracking-wider flex items-center gap-2">
+          <div className="bg-stone-900/40 border border-stone-900 p-5 rounded-lg space-y-4">
+            <h3 className="text-sm font-mono text-phosphor-400 uppercase tracking-wider flex items-center gap-2">
               <Sparkles className="w-4 h-4" /> Cognitive Node Allocations
             </h3>
             
@@ -207,11 +207,11 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
               
               {/* Orchestrator Menu */}
               <div className="flex flex-col gap-2">
-                <label className="text-xs font-mono text-gray-400 uppercase tracking-widest">Orchestrator Node</label>
+                <label className="text-xs font-mono text-stone-400 uppercase tracking-widest">Orchestrator Node</label>
                 <select
                   value={localConfig.models.orchestrator.provider}
                   onChange={(e) => handleModelSelect('orchestrator', 'provider', e.target.value)}
-                  className="bg-black border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500 font-mono"
+                  className="bg-black border border-stone-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-phosphor-500 font-mono"
                 >
                   {PROVIDERS.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -220,7 +220,7 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
                 <select
                   value={localConfig.models.orchestrator.model}
                   onChange={(e) => handleModelSelect('orchestrator', 'model', e.target.value)}
-                  className="bg-black border border-gray-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                  className="bg-black border border-stone-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-phosphor-500 font-mono"
                 >
                   {(modelsMap[localConfig.models.orchestrator.provider] || []).map(m => (
                     <option key={m} value={m}>{m}</option>
@@ -230,11 +230,11 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
 
               {/* Specialist Menu */}
               <div className="flex flex-col gap-2">
-                <label className="text-xs font-mono text-gray-400 uppercase tracking-widest">Specialist Swarm</label>
+                <label className="text-xs font-mono text-stone-400 uppercase tracking-widest">Specialist Swarm</label>
                 <select
                   value={localConfig.models.specialist.provider}
                   onChange={(e) => handleModelSelect('specialist', 'provider', e.target.value)}
-                  className="bg-black border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500 font-mono"
+                  className="bg-black border border-stone-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-phosphor-500 font-mono"
                 >
                   {PROVIDERS.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -243,7 +243,7 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
                 <select
                   value={localConfig.models.specialist.model}
                   onChange={(e) => handleModelSelect('specialist', 'model', e.target.value)}
-                  className="bg-black border border-gray-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                  className="bg-black border border-stone-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-phosphor-500 font-mono"
                 >
                   {(modelsMap[localConfig.models.specialist.provider] || []).map(m => (
                     <option key={m} value={m}>{m}</option>
@@ -253,11 +253,11 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
 
               {/* Synthesizer Menu */}
               <div className="flex flex-col gap-2">
-                <label className="text-xs font-mono text-gray-400 uppercase tracking-widest">Synthesizer Node</label>
+                <label className="text-xs font-mono text-stone-400 uppercase tracking-widest">Synthesizer Node</label>
                 <select
                   value={localConfig.models.synthesizer.provider}
                   onChange={(e) => handleModelSelect('synthesizer', 'provider', e.target.value)}
-                  className="bg-black border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500 font-mono"
+                  className="bg-black border border-stone-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-phosphor-500 font-mono"
                 >
                   {PROVIDERS.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -266,7 +266,7 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
                 <select
                   value={localConfig.models.synthesizer.model}
                   onChange={(e) => handleModelSelect('synthesizer', 'model', e.target.value)}
-                  className="bg-black border border-gray-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                  className="bg-black border border-stone-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-phosphor-500 font-mono"
                 >
                   {(modelsMap[localConfig.models.synthesizer.provider] || []).map(m => (
                     <option key={m} value={m}>{m}</option>
@@ -279,7 +279,7 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
 
           {/* Provider Settings */}
           <div className="space-y-6">
-            <h3 className="text-sm font-mono text-cyan-400 uppercase tracking-wider flex items-center gap-2">
+            <h3 className="text-sm font-mono text-phosphor-400 uppercase tracking-wider flex items-center gap-2">
               <Server className="w-4 h-4" /> LLM Provider API Integration
             </h3>
 
@@ -291,14 +291,14 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
                 const modelCount = modelsMap[provider.id]?.length || 0;
 
                 return (
-                  <div key={provider.id} className="bg-black/50 border border-gray-900 p-4 rounded-lg space-y-3 flex flex-col justify-between">
+                  <div key={provider.id} className="bg-black/50 border border-stone-900 p-4 rounded-lg space-y-3 flex flex-col justify-between">
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-sm font-bold font-mono text-white">{provider.name}</span>
                         <button
                           type="button"
                           onClick={() => fetchModelsForProvider(provider.id, provConf.apiKey, provConf.baseUrl || provider.defaultUrl)}
-                          className="text-xs font-mono text-cyan-500 hover:text-cyan-300 flex items-center gap-1 bg-cyan-950/20 px-2 py-1 rounded border border-cyan-900/30 transition-colors disabled:opacity-50"
+                          className="text-xs font-mono text-phosphor-500 hover:text-phosphor-300 flex items-center gap-1 bg-phosphor-950/20 px-2 py-1 rounded border border-phosphor-900/30 transition-colors disabled:opacity-50"
                           disabled={isLooming}
                         >
                           <RefreshCw className={`w-3 h-3 ${isLooming ? 'animate-spin' : ''}`} />
@@ -308,8 +308,8 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
 
                       <div className="space-y-2">
                         {provider.id !== 'ollama' && provider.id !== 'lmstudio' && (
-                          <div className="flex items-center gap-2 bg-black border border-gray-900 rounded px-3 py-2">
-                            <Key className="w-4 h-4 text-gray-500 shrink-0" />
+                          <div className="flex items-center gap-2 bg-black border border-stone-900 rounded px-3 py-2">
+                            <Key className="w-4 h-4 text-stone-500 shrink-0" />
                             <input
                               type="password"
                               value={provConf.apiKey}
@@ -320,8 +320,8 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
                           </div>
                         )}
 
-                        <div className="flex items-center gap-2 bg-black border border-gray-900 rounded px-3 py-2">
-                          <Globe className="w-4 h-4 text-gray-500 shrink-0" />
+                        <div className="flex items-center gap-2 bg-black border border-stone-900 rounded px-3 py-2">
+                          <Globe className="w-4 h-4 text-stone-500 shrink-0" />
                           <input
                             type="text"
                             value={provConf.baseUrl}
@@ -347,17 +347,17 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
         </div>
 
         {/* Footer actions */}
-        <div className="p-6 border-t border-gray-900 flex justify-between items-center bg-black/40">
-          <div className="text-xs font-mono text-gray-500 uppercase">
+        <div className="p-6 border-t border-stone-900 flex justify-between items-center bg-black/40">
+          <div className="text-xs font-mono text-stone-500 uppercase">
             {successMsg ? (
-              <span className="text-green-400 flex items-center gap-1"><Check className="w-4 h-4" /> {successMsg}</span>
+              <span className="text-lime-400 flex items-center gap-1"><Check className="w-4 h-4" /> {successMsg}</span>
             ) : (
               <span>ALL KEYS PERSISTED LOCALLY</span>
             )}
           </div>
           <button
             onClick={handleSave}
-            className="bg-cyan-950 text-cyan-400 border border-cyan-900 hover:bg-cyan-900 hover:text-cyan-300 px-6 py-2.5 rounded-lg font-mono font-bold uppercase tracking-widest text-xs flex items-center gap-2 transition-colors"
+            className="bg-phosphor-950 text-phosphor-400 border border-phosphor-900 hover:bg-phosphor-900 hover:text-phosphor-300 px-6 py-2.5 rounded-lg font-mono font-bold uppercase tracking-widest text-xs flex items-center gap-2 transition-colors"
           >
             <Save className="w-4 h-4" /> Save Configuration
           </button>

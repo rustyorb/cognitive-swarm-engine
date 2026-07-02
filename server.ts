@@ -1,11 +1,17 @@
+import dotenv from "dotenv";
+dotenv.config({ path: [".env.local", ".env"], quiet: true });
+
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
+const MODEL_LIST_TIMEOUT_MS = 15_000;
+const GENERATION_TIMEOUT_MS = 120_000;
+
 function getGeminiClient(customApiKey?: string) {
   const key = customApiKey || process.env.GEMINI_API_KEY || "";
-  return new GoogleGenAI({ apiKey: key });
+  return new GoogleGenAI({ apiKey: key, httpOptions: { timeout: GENERATION_TIMEOUT_MS } });
 }
 
 function parseJsonString(text: string): any {
@@ -86,6 +92,51 @@ function parseJsonString(text: string): any {
   return [];
 }
 
+interface AgentProfileLike {
+  id: string;
+  designation: string;
+  system_prompt: string;
+  geometric_avatar_seed: string;
+}
+
+function normalizeAgents(raw: any[]): AgentProfileLike[] {
+  const agents: AgentProfileLike[] = [];
+  const seenIds = new Set<string>();
+
+  for (let index = 0; index < raw.length; index++) {
+    const entry = raw[index];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+
+    const systemPrompt = entry.system_prompt != null ? String(entry.system_prompt).trim() : "";
+    const designation = entry.designation != null ? String(entry.designation).trim() : "";
+    if (!systemPrompt || !designation) continue;
+
+    let id = entry.id != null ? String(entry.id).trim() : "";
+    if (!id) {
+      id = designation.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || `agent_${index}`;
+    }
+    if (seenIds.has(id)) {
+      let suffix = 2;
+      while (seenIds.has(`${id}_${suffix}`)) suffix++;
+      id = `${id}_${suffix}`;
+    }
+    seenIds.add(id);
+
+    const seed = entry.geometric_avatar_seed != null ? String(entry.geometric_avatar_seed).trim() : "";
+
+    agents.push({
+      id,
+      designation,
+      system_prompt: systemPrompt,
+      geometric_avatar_seed: seed || id
+    });
+
+    if (agents.length >= 8) break;
+  }
+
+  return agents;
+}
+
 async function generateUnifiedText(params: {
   provider: string;
   model: string;
@@ -141,14 +192,19 @@ async function generateUnifiedText(params: {
         max_tokens: 4000,
         ...(systemPrompt ? { system: systemPrompt } : {}),
         messages: [{ role: "user", content: prompt }]
-      })
+      }),
+      signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS)
     });
     if (!response.ok) {
       const errText = await response.text();
       throw new Error(`Anthropic Error: ${errText}`);
     }
     const data: any = await response.json();
-    return data.content[0].text;
+    const text = data.content?.find((b: any) => b.type === "text")?.text ?? "";
+    if (!text) {
+      throw new Error("Anthropic Error: response contained no text content");
+    }
+    return text;
   }
 
   // OpenAI-compatible
@@ -176,7 +232,8 @@ async function generateUnifiedText(params: {
         { role: "user", content: prompt }
       ],
       ...(jsonMode ? { response_format: { type: "json_object" } } : {})
-    })
+    }),
+    signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS)
   });
 
   if (!response.ok) {
@@ -185,7 +242,11 @@ async function generateUnifiedText(params: {
   }
 
   const data: any = await response.json();
-  return data.choices[0].message.content;
+  const content = data.choices?.[0]?.message?.content ?? "";
+  if (!content) {
+    throw new Error(`${provider} Error: response contained no message content`);
+  }
+  return content;
 }
 
 async function pipeUnifiedStream(params: {
@@ -231,7 +292,8 @@ async function pipeUnifiedStream(params: {
         ...(systemPrompt ? { system: systemPrompt } : {}),
         messages: [{ role: "user", content: prompt }],
         stream: true
-      })
+      }),
+      signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS)
     });
 
     if (!response.ok) {
@@ -294,7 +356,8 @@ async function pipeUnifiedStream(params: {
         { role: "user", content: prompt }
       ],
       stream: true
-    })
+    }),
+    signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS)
   });
 
   if (!response.ok) {
@@ -335,7 +398,7 @@ async function pipeUnifiedStream(params: {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -357,7 +420,8 @@ async function startServer() {
       } else if (provider === "openai") {
         const url = baseUrl || "https://api.openai.com/v1";
         const response = await fetch(`${url}/models`, {
-          headers: apiKey ? { "Authorization": `Bearer ${apiKey}` } : {}
+          headers: apiKey ? { "Authorization": `Bearer ${apiKey}` } : {},
+          signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS)
         });
         if (!response.ok) {
           throw new Error(`HTTP Error ${response.status}`);
@@ -369,7 +433,8 @@ async function startServer() {
       } else if (provider === "openrouter") {
         const url = baseUrl || "https://openrouter.ai/api/v1";
         const response = await fetch(`${url}/models`, {
-          headers: apiKey ? { "Authorization": `Bearer ${apiKey}` } : {}
+          headers: apiKey ? { "Authorization": `Bearer ${apiKey}` } : {},
+          signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS)
         });
         if (!response.ok) {
           throw new Error(`HTTP Error ${response.status}`);
@@ -381,7 +446,8 @@ async function startServer() {
       } else if (provider === "veniceai") {
         const url = baseUrl || "https://api.venice.ai/api/v1";
         const response = await fetch(`${url}/models`, {
-          headers: apiKey ? { "Authorization": `Bearer ${apiKey}` } : {}
+          headers: apiKey ? { "Authorization": `Bearer ${apiKey}` } : {},
+          signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS)
         });
         if (!response.ok) {
           throw new Error(`HTTP Error ${response.status}`);
@@ -396,7 +462,8 @@ async function startServer() {
           headers: {
             "x-api-key": apiKey || "",
             "anthropic-version": "2023-06-01"
-          }
+          },
+          signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS)
         });
         if (!response.ok) {
           throw new Error(`HTTP Error ${response.status}`);
@@ -416,14 +483,14 @@ async function startServer() {
       } else if (provider === "ollama") {
         const url = baseUrl || "http://localhost:11434";
         try {
-          const response = await fetch(`${url}/api/tags`);
+          const response = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS) });
           if (response.ok) {
             const data: any = await response.json();
             if (data.models) {
               models = data.models.map((m: any) => m.name);
             }
           } else {
-            const altResponse = await fetch(`${url}/v1/models`);
+            const altResponse = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS) });
             if (altResponse.ok) {
               const altData: any = await altResponse.json();
               if (altData.data) {
@@ -433,7 +500,7 @@ async function startServer() {
           }
         } catch (localErr) {
           // Retry with /v1/models
-          const altResponse = await fetch(`${url}/v1/models`);
+          const altResponse = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS) });
           if (altResponse.ok) {
             const altData: any = await altResponse.json();
             if (altData.data) {
@@ -445,7 +512,7 @@ async function startServer() {
         }
       } else if (provider === "lmstudio") {
         const url = baseUrl || "http://localhost:1234/v1";
-        const response = await fetch(`${url}/models`);
+        const response = await fetch(`${url}/models`, { signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS) });
         if (!response.ok) {
           throw new Error(`HTTP Error ${response.status}`);
         }
@@ -504,7 +571,11 @@ async function startServer() {
       });
 
       if (!text) throw new Error("No response from AI");
-      const agents = parseJsonString(text);
+      const agents = normalizeAgents(parseJsonString(text));
+
+      if (agents.length === 0) {
+        return res.status(502).json({ error: "The orchestrator model did not return usable agent profiles. Try again or pick a different orchestrator model." });
+      }
 
       res.json({ agents });
     } catch (error: any) {
@@ -539,7 +610,13 @@ async function startServer() {
       res.end();
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      } else {
+        // Streaming already started: destroy the socket so the client's
+        // stream read fails detectably instead of ending cleanly truncated.
+        res.destroy(error);
+      }
     }
   });
 
