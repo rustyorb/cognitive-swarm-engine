@@ -662,7 +662,7 @@ async function startServer() {
         .map((r: any) => `### Specialist: ${r.agent.designation}\n\n${r.result}`)
         .join("\n\n---\n\n");
 
-      res.setHeader('Content-Type', 'text/plain');
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Transfer-Encoding', 'chunked');
 
       await pipeUnifiedStream({
