@@ -122,8 +122,11 @@ sequenceDiagram
 
 | | Feature | Description |
 |:---:|:---|:---|
+| 🎬 | **Swarm Director** | After the orchestrator designs the swarm, review it before launch: rename specialists, rewrite their directives, delete weak angles, add your own, or re-roll the whole swarm. Human-in-the-loop control. |
+| 🕸️ | **Live Swarm Constellation** | An animated node-graph view of the swarm — specialist nodes orbit a central core, edges crackle with energy as each agent streams, and everything converges when synthesis ignites. Toggle between Constellation and Grid. |
+| 💬 | **Interrogate the Swarm** | Chat with your finished dossier. Ask follow-ups answered live by an analyst grounded strictly in the specialist findings — multi-turn, cited, and honest about what the research didn't cover. |
 | 🎛️ | **Per-role model routing** | Assign a distinct provider + model to the orchestrator, specialist swarm, and synthesizer independently. |
-| 📡 | **Live telemetry HUD** | Each agent is a card that streams its research in real time. Expand any card to read the full markdown output. |
+| 📡 | **Live telemetry HUD** | Each agent streams its research in real time. Expand any card to read the full markdown output. |
 | ⏹️ | **Halt control** | Abort an in-flight run at any stage — orchestration, swarm, or synthesis — via a single `AbortController`. |
 | 📋 | **Dossier export** | Copy to clipboard or download as `.md`. GitHub-flavored tables render correctly. |
 | 🕓 | **Run history** | Your last 20 completed runs persist in `localStorage` and reload with one click. |
@@ -234,9 +237,11 @@ Open the **⚙ Config** panel (top-right) to wire up providers and assign models
 
 1. Type a research vector, e.g. _"Analyze the socio-economic impacts of asteroid mining by 2050."_
 2. Press <kbd>Enter</kbd> or click **Initialize**.
-3. Watch the swarm stream in the telemetry HUD. Hit **Halt** to abort.
-4. Read, <kbd>Copy</kbd>, or **Download** the compiled dossier.
-5. Revisit any past run from **Run History**.
+3. **Review the swarm** in the Director — edit directives, add/remove specialists, or re-roll — then hit **Launch Swarm**.
+4. Watch the swarm stream in the **Constellation** (or flip to **Grid**). Hit **Halt** to abort.
+5. Read, <kbd>Copy</kbd>, or **Download** the compiled dossier.
+6. **Interrogate the Swarm** — ask follow-up questions grounded in the findings.
+7. Revisit any past run from **Run History**.
 
 > [!NOTE]
 > The orchestrator decides the swarm composition dynamically per query — the agents in your run will differ from the illustration above.
@@ -251,13 +256,17 @@ cognitive-swarm-engine/
 │   ├── /api/models               #   → list available models per provider
 │   ├── /api/orchestrate          #   → design + validate the agent swarm
 │   ├── /api/execute              #   → stream one specialist's research
-│   └── /api/synthesize           #   → compile the final dossier
+│   ├── /api/synthesize           #   → compile the final dossier (streamed)
+│   └── /api/interrogate          #   → answer follow-ups grounded in the dossier
 ├── src/
 │   ├── App.tsx                   # Pipeline state machine + layout
 │   ├── types.ts                  # Shared type contracts
 │   ├── index.css                 # CRT-phosphor theme + Tailwind
 │   └── components/
 │       ├── AgentCard.tsx         # Streaming, expandable agent telemetry
+│       ├── SwarmDirector.tsx     # Human-in-the-loop swarm review/editor
+│       ├── SwarmConstellation.tsx# Animated live node-graph visualization
+│       ├── InterrogatePanel.tsx  # Post-run Q&A grounded in the dossier
 │       ├── ConfigPanel.tsx       # Provider + per-role model configuration
 │       └── GeometricAvatar.tsx   # Deterministic seeded agent sigils
 ├── index.html
@@ -290,8 +299,11 @@ cognitive-swarm-engine/
 - [x] Dossier copy + download
 - [x] Run history persistence
 - [x] Streaming synthesis[^1] — the dossier renders token-by-token as it compiles
-- [ ] Editable / re-runnable individual agents
+- [x] Human-in-the-loop swarm editing (Swarm Director)
+- [x] Live swarm graph visualization (Constellation)
+- [x] Conversational dossier Q&A (Interrogate the Swarm)
 - [ ] Export dossier to PDF
+- [ ] Persist Q&A threads with run history
 - [ ] Shareable run permalinks
 
 ---

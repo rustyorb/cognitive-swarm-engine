@@ -1,12 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { BrainCircuit, Cpu, Zap, Binary, Check, Database, Settings, Copy, Download, History, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { BrainCircuit, Cpu, Zap, Binary, Check, Database, Settings, Copy, Download, History, X, ChevronDown, ChevronUp, LayoutGrid, Waypoints } from 'lucide-react';
 import { AgentProfile, AgentExecutionState, AppConfig } from './types';
 import { AgentCard } from './components/AgentCard';
 import { ConfigPanel } from './components/ConfigPanel';
+import { SwarmDirector } from './components/SwarmDirector';
+import { SwarmConstellation } from './components/SwarmConstellation';
+import { InterrogatePanel } from './components/InterrogatePanel';
 
-type Phase = 'IDLE' | 'ORCHESTRATING' | 'EXECUTING' | 'SYNTHESIZING' | 'DONE' | 'ERROR';
+type Phase = 'IDLE' | 'ORCHESTRATING' | 'REVIEW' | 'EXECUTING' | 'SYNTHESIZING' | 'DONE' | 'ERROR';
+type ViewMode = 'grid' | 'constellation';
 
 interface RunRecord {
   id: string;
@@ -59,6 +63,9 @@ export default function App() {
 
   const [copied, setCopied] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('constellation');
+  const [activeRunId, setActiveRunId] = useState('');
+  const [regenerating, setRegenerating] = useState(false);
   const [history, setHistory] = useState<RunRecord[]>(() => {
     try {
       const saved = localStorage.getItem(HISTORY_KEY);
@@ -117,13 +124,10 @@ export default function App() {
   };
 
   const saveRunToHistory = (runQuery: string, runDossier: string) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setActiveRunId(id);
     setHistory(prev => {
-      const entry: RunRecord = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        query: runQuery,
-        dossier: runDossier,
-        timestamp: Date.now()
-      };
+      const entry: RunRecord = { id, query: runQuery, dossier: runDossier, timestamp: Date.now() };
       const next = [entry, ...prev].slice(0, 20);
       try {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
@@ -140,6 +144,7 @@ export default function App() {
     setAgents([]);
     setAgentStates({});
     setErrorMsg(null);
+    setActiveRunId(run.id);
     setPhase('DONE');
   };
 
@@ -171,7 +176,25 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const handleExecute = async (e: React.FormEvent) => {
+  // Ask the orchestrator to design a swarm for the current query.
+  const fetchAgents = async (signal: AbortSignal): Promise<AgentProfile[]> => {
+    const orchRes = await fetch('/api/orchestrate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, config }),
+      signal
+    });
+    if (!orchRes.ok) throw new Error(`Orchestration failed: ${await orchRes.text()}`);
+    const orchData = await orchRes.json();
+    const generatedAgents: AgentProfile[] = orchData.agents;
+    if (!Array.isArray(generatedAgents) || generatedAgents.length === 0) {
+      throw new Error("Orchestration failed: the model did not return a valid list of agents. Try again or pick a different orchestrator model.");
+    }
+    return generatedAgents;
+  };
+
+  // Stage 1: design the swarm, then hand off to the Director for review.
+  const handleOrchestrate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
 
@@ -180,40 +203,78 @@ export default function App() {
     setAgents([]);
     setAgentStates({});
     setDossier(null);
+    setActiveRunId('');
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const generatedAgents = await fetchAgents(controller.signal);
+      setAgents(generatedAgents);
+      setPhase('REVIEW');
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err?.name === 'AbortError' ? 'Run halted by operator.' : (err.message || 'An unknown error occurred'));
+      setPhase('ERROR');
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
+  // Re-roll the swarm from the Director without leaving review.
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    setErrorMsg(null);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const generatedAgents = await fetchAgents(controller.signal);
+      setAgents(generatedAgents);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error(err);
+        setErrorMsg(err.message || 'An unknown error occurred');
+        setPhase('ERROR');
+      }
+    } finally {
+      setRegenerating(false);
+      abortRef.current = null;
+    }
+  };
+
+  const handleDiscard = () => {
+    setPhase('IDLE');
+    setAgents([]);
+    setAgentStates({});
+    setErrorMsg(null);
+  };
+
+  // Stage 2: run the (possibly edited) swarm and synthesize the dossier.
+  const launchSwarm = async () => {
+    const launchAgents = agents;
+    if (launchAgents.length === 0) return;
+
+    setPhase('EXECUTING');
+    setErrorMsg(null);
+    setDossier(null);
+    setActiveRunId('');
+
+    const initialStates: Record<string, AgentExecutionState> = {};
+    launchAgents.forEach(agent => {
+      initialStates[agent.id] = { profile: agent, state: 'PENDING', result: null };
+    });
+    setAgentStates(initialStates);
 
     const controller = new AbortController();
     abortRef.current = controller;
     const { signal } = controller;
 
     try {
-      // 1. Orchestrate
-      const orchRes = await fetch('/api/orchestrate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, config }),
-        signal
-      });
-      if (!orchRes.ok) throw new Error(`Orchestration failed: ${await orchRes.text()}`);
-      const orchData = await orchRes.json();
-      const generatedAgents: AgentProfile[] = orchData.agents;
-      
-      if (!Array.isArray(generatedAgents) || generatedAgents.length === 0) {
-        throw new Error("Orchestration failed: The model did not return a valid list of agents. Please try again or select a different model in configuration.");
-      }
-      
-      setAgents(generatedAgents);
-      
-      const initialStates: Record<string, AgentExecutionState> = {};
-      generatedAgents.forEach(agent => {
-        initialStates[agent.id] = { profile: agent, state: 'PENDING', result: null };
-      });
-      setAgentStates(initialStates);
-      
-      setPhase('EXECUTING');
-
-      // 2. Parallel Execute
+      // Parallel Execute
       const results = await Promise.all(
-        generatedAgents.map(async (agent) => {
+        launchAgents.map(async (agent) => {
           let accumulatedResult = '';
           try {
             updateAgentState(agent.id, { state: 'GATHERING_TELEMETRY' });
@@ -365,7 +426,7 @@ export default function App() {
 
         {/* Input Interface */}
         <section className="bg-stone-950/80 border border-stone-800 p-4 sm:p-6 rounded-xl shadow-2xl shadow-phosphor-950/20">
-          <form onSubmit={handleExecute} className="flex flex-col gap-4">
+          <form onSubmit={handleOrchestrate} className="flex flex-col gap-4">
             <label htmlFor="query" className="text-sm font-mono text-stone-400 uppercase tracking-wider flex flex-wrap gap-2 justify-between items-center">
               <span>Input Research Vector</span>
               <span className="text-xs text-phosphor-500 uppercase tracking-widest normal-case">Orchestrated by: {config.models.orchestrator.model}</span>
@@ -394,7 +455,7 @@ export default function App() {
                   disabled={!query.trim()}
                   className="bg-phosphor-950 text-phosphor-400 border border-phosphor-900 px-8 py-3 rounded-lg font-mono font-bold uppercase tracking-wider hover:bg-phosphor-900 hover:text-phosphor-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  Initialize
+                  {phase === 'REVIEW' ? 'Re-Design' : 'Initialize'}
                 </button>
               )}
             </div>
@@ -402,7 +463,7 @@ export default function App() {
         </section>
 
         {/* Phase Indicator */}
-        {phase !== 'IDLE' && (
+        {phase !== 'IDLE' && phase !== 'REVIEW' && (
           <div className="flex flex-col gap-2 font-mono text-sm border-l-2 border-stone-800 pl-4 py-2">
             <div className={`flex items-center gap-2 ${phase === 'ORCHESTRATING' ? 'text-phosphor-400 animate-pulse glow-amber' : 'text-stone-500'}`}>
               <Cpu className="w-4 h-4" /> [1. ORCHESTRATION_NODE_ACTIVE: {config.models.orchestrator.model}]
@@ -426,19 +487,55 @@ export default function App() {
           </div>
         )}
 
+        {/* Swarm Director (human-in-the-loop review) */}
+        {phase === 'REVIEW' && agents.length > 0 && (
+          <SwarmDirector
+            agents={agents}
+            onChange={setAgents}
+            onLaunch={launchSwarm}
+            onRegenerate={handleRegenerate}
+            onDiscard={handleDiscard}
+            regenerating={regenerating}
+          />
+        )}
+
         {/* Telemetry HUD */}
-        {agents.length > 0 && (
+        {agents.length > 0 && phase !== 'REVIEW' && (
           <section className="flex flex-col gap-4">
-            <h2 className="text-xs font-mono text-stone-500 uppercase tracking-widest">Live Telemetry HUD</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {agents.map((agent, i) => (
-                <div key={agent.id} className="animate-fade-up" style={{ animationDelay: `${i * 70}ms` }}>
-                  <AgentCard
-                    executionState={agentStates[agent.id] || { profile: agent, state: 'PENDING', result: null }}
-                  />
-                </div>
-              ))}
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xs font-mono text-stone-500 uppercase tracking-widest">Live Telemetry HUD</h2>
+              <div className="flex items-center gap-1 bg-black/50 border border-stone-800 rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('constellation')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-mono text-[11px] uppercase tracking-widest transition-colors ${viewMode === 'constellation' ? 'bg-phosphor-950 text-phosphor-300' : 'text-stone-500 hover:text-phosphor-400'}`}
+                  title="Constellation view"
+                >
+                  <Waypoints className="w-3.5 h-3.5" /> Swarm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('grid')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-mono text-[11px] uppercase tracking-widest transition-colors ${viewMode === 'grid' ? 'bg-phosphor-950 text-phosphor-300' : 'text-stone-500 hover:text-phosphor-400'}`}
+                  title="Grid view"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" /> Grid
+                </button>
+              </div>
             </div>
+            {viewMode === 'constellation' ? (
+              <SwarmConstellation agents={agents} agentStates={agentStates} phase={phase} />
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {agents.map((agent, i) => (
+                  <div key={agent.id} className="animate-fade-up" style={{ animationDelay: `${i * 70}ms` }}>
+                    <AgentCard
+                      executionState={agentStates[agent.id] || { profile: agent, state: 'PENDING', result: null }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -481,6 +578,19 @@ export default function App() {
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{dossier}</ReactMarkdown>
             </div>
           </section>
+        )}
+
+        {/* Interrogate the Swarm (post-run Q&A grounded in the dossier) */}
+        {phase === 'DONE' && dossier && (
+          <InterrogatePanel
+            runId={activeRunId || 'current'}
+            query={query}
+            dossier={dossier}
+            findings={Object.values(agentStates)
+              .filter(s => s.state === 'RESOLVED' && s.result)
+              .map(s => ({ designation: s.profile.designation, result: s.result as string }))}
+            config={config}
+          />
         )}
 
         {/* Run History */}

@@ -11,9 +11,9 @@ const GENERATION_TIMEOUT_MS = 300_000;
 // Generous output budget so long, multi-page dossiers are not truncated.
 const MAX_OUTPUT_TOKENS = 8192;
 
-const SYNTHESIZER_SYSTEM_PROMPT = `You are the Synthesis Node — the final intelligence that compiles a swarm of specialist research findings into a single, authoritative markdown dossier.
+const SYNTHESIZER_SYSTEM_PROMPT = `You are the Report Writer — the lead analyst of a research swarm. Each specialist has returned RAW FINDINGS from their corner of the question; your job is to WRITE the definitive report from them: select what matters, integrate across specialists, resolve overlaps and contradictions, and elevate raw research notes into authoritative, flowing prose.
 
-Produce a COMPREHENSIVE, dense, multi-page report. This is a flagship deliverable, not a summary. Requirements:
+Produce a COMPREHENSIVE, dense, multi-page report. This is the flagship deliverable — the only finished report in the pipeline. Requirements:
 
 STRUCTURE (use GitHub-flavored markdown):
 - Open with a level-1 title: "# DOSSIER: <concise title of the subject>".
@@ -32,6 +32,20 @@ QUALITY BAR:
 - Aim for depth: a thorough dossier of at least ~1500-2500 words when the material supports it.
 - No introductory pleasantries, no "as an AI", no meta-commentary. Start directly with the title.
 - Format immaculately: correct heading hierarchy, well-formed tables, tight prose.`;
+
+const INTERROGATOR_SYSTEM_PROMPT = `You are the Interrogation Node — an expert analyst who answers follow-up questions about an EXISTING research dossier compiled by a swarm of specialists.
+
+Ground every answer STRICTLY in the provided material: the compiled dossier and the raw specialist findings supplied to you. Do not invent facts, figures, or sources that are not present in that material.
+
+HOW TO ANSWER:
+- Synthesize across the dossier and the specialist findings — connect and reconcile information rather than quoting a single passage.
+- When a specific claim, figure, or conclusion traces to a particular specialist, cite which specialist it came from (e.g. "per the <designation> specialist").
+- Be direct and get to the point. Answer the actual question asked.
+- Format cleanly in GitHub-flavored markdown: use headings, bullet lists, and tables where they genuinely aid clarity — but keep it proportional.
+- Produce a FOCUSED answer, not a whole new dossier. Match the scope of the question; do not pad.
+- If the dossier and findings do not cover what is being asked, say so plainly and explicitly ("The dossier does not address ...") instead of speculating or fabricating an answer. You may note what related information IS available.
+
+No introductory pleasantries, no "as an AI", no meta-commentary. Answer directly.`;
 
 function getGeminiClient(customApiKey?: string) {
   const key = customApiKey || process.env.GEMINI_API_KEY || "";
@@ -631,7 +645,7 @@ async function startServer() {
         apiKey: providerDetails.apiKey,
         baseUrl: providerDetails.baseUrl,
         systemPrompt: agent.system_prompt,
-        prompt: `Conduct deep research on the following query, strictly within your specialist domain. Produce a thorough, well-structured findings brief in markdown: lead with your most important conclusions, then supporting detail with specific facts, figures, mechanisms, and named examples. Use headings, bullet points, and tables where they aid clarity. Be substantive and dense — your output feeds a synthesis node compiling a flagship dossier.\n\nQuery: ${query}`,
+        prompt: `You are ONE specialist in a research swarm, assigned a single dimension of the question. Investigate the query strictly within your domain and return your FINDINGS — the raw intelligence a separate report-writing agent will weave into the final report. You are NOT writing the finished report yourself.\n\nReport dense, specific findings: concrete claims, evidence, figures, mechanisms, named examples, causal links, and the tensions or open questions you surface. Light structure is fine (short thematic subheadings, bullets) to keep it scannable.\n\nDo NOT frame this as a standalone report: no overall title, no executive summary, no conclusion or "in summary" wrap-up — those belong to the report writer. Do not restate the whole question or stray into other specialists' territory. Stay in your lane and go deep. Substance over polish.\n\nQuery: ${query}`,
         res
       });
 
@@ -672,6 +686,54 @@ async function startServer() {
         baseUrl: providerDetails.baseUrl,
         systemPrompt: SYNTHESIZER_SYSTEM_PROMPT,
         prompt: `Compile the findings of the specialist swarm into a single authoritative dossier answering the original research query.\n\n=== ORIGINAL QUERY ===\n${query}\n\n=== SPECIALIST FINDINGS ===\n${promptContext}`,
+        res
+      });
+
+      res.end();
+    } catch (error: any) {
+      console.error(error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      } else {
+        res.destroy(error);
+      }
+    }
+  });
+
+  // POST /api/interrogate
+  app.post("/api/interrogate", async (req, res) => {
+    try {
+      const { query, dossier, findings, question, history, config } = req.body;
+      if (!question || !dossier) return res.status(400).json({ error: "Missing payload" });
+
+      const provider = config?.models?.synthesizer?.provider || "gemini";
+      const model = config?.models?.synthesizer?.model || "gemini-3.1-pro-preview";
+      const providerDetails = config?.providers?.[provider] || { apiKey: "", baseUrl: "" };
+
+      const findingsContext = Array.isArray(findings) && findings.length > 0
+        ? findings
+            .map((f: any) => `### Specialist: ${f.designation}\n${f.result}`)
+            .join("\n\n---\n\n")
+        : "(No individual specialist findings were provided.)";
+
+      const historyContext = Array.isArray(history) && history.length > 0
+        ? history
+            .map((turn: any) => `${turn.role === 'user' ? 'Q' : 'A'}: ${turn.content}`)
+            .join("\n\n")
+        : "";
+
+      const prompt = `Answer the follow-up question below, grounded strictly in the dossier and specialist findings.\n\n=== ORIGINAL QUERY ===\n${query || "(not provided)"}\n\n=== COMPILED DOSSIER ===\n${dossier}\n\n=== SPECIALIST FINDINGS ===\n${findingsContext}${historyContext ? `\n\n=== PRIOR Q&A ===\n${historyContext}` : ""}\n\n=== NEW QUESTION ===\n${question}`;
+
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Transfer-Encoding', 'chunked');
+
+      await pipeUnifiedStream({
+        provider,
+        model,
+        apiKey: providerDetails.apiKey,
+        baseUrl: providerDetails.baseUrl,
+        systemPrompt: INTERROGATOR_SYSTEM_PROMPT,
+        prompt,
         res
       });
 
