@@ -710,15 +710,17 @@ async function startServer() {
       const model = config?.models?.synthesizer?.model || "gemini-3.1-pro-preview";
       const providerDetails = config?.providers?.[provider] || { apiKey: "", baseUrl: "" };
 
-      const findingsContext = Array.isArray(findings) && findings.length > 0
+      const hasFindings = Array.isArray(findings) && findings.length > 0;
+      const findingsContext = hasFindings
         ? findings
-            .map((f: any) => `### Specialist: ${f.designation}\n${f.result}`)
+            .map((f: any) => `### Specialist: ${String(f?.designation ?? "Unknown").trim()}\n${String(f?.result ?? "").trim()}`)
             .join("\n\n---\n\n")
-        : "(No individual specialist findings were provided.)";
+        : "(No individual specialist findings are available for this run — answer from the dossier alone, and do not attribute claims to specific specialists.)";
 
       const historyContext = Array.isArray(history) && history.length > 0
         ? history
-            .map((turn: any) => `${turn.role === 'user' ? 'Q' : 'A'}: ${turn.content}`)
+            .filter((turn: any) => turn && typeof turn.content === "string")
+            .map((turn: any) => `${turn.role === 'user' ? 'Q' : 'A'}: ${String(turn.content).trim()}`)
             .join("\n\n")
         : "";
 

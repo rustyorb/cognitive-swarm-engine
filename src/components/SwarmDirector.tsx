@@ -23,7 +23,9 @@ function AgentEditorRow({
   onUpdate: (field: keyof AgentProfile, value: string) => void;
   onDelete: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  // Newly-added agents start with an empty directive — expand so the (required)
+  // field is visible instead of silently blocking Launch.
+  const [expanded, setExpanded] = useState(agent.system_prompt.trim() === '');
 
   return (
     <div
@@ -166,7 +168,7 @@ export function SwarmDirector({ agents, onChange, onLaunch, onRegenerate, onDisc
         <button
           type="button"
           onClick={onLaunch}
-          disabled={!canLaunch}
+          disabled={!canLaunch || regenerating}
           title={canLaunch ? 'Launch the swarm' : 'Every specialist needs a designation and a directive'}
           className="flex items-center justify-center gap-2 px-8 py-2.5 rounded-lg bg-phosphor-950 text-phosphor-300 border border-phosphor-800 hover:bg-phosphor-900 hover:text-phosphor-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-mono text-xs font-bold uppercase tracking-widest glow-amber"
         >

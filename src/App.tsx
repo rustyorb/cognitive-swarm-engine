@@ -267,6 +267,7 @@ export default function App() {
     });
     setAgentStates(initialStates);
 
+    abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     const { signal } = controller;
