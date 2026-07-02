@@ -3,6 +3,7 @@ dotenv.config({ path: [".env.local", ".env"], quiet: true });
 
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -939,9 +940,43 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+  // Bind to PORT, auto-incrementing to the next free port if it is in use, so a
+  // busy 3000 (or whatever) never crashes the server with an unhandled EADDRINUSE.
+  const bind = (port: number, attemptsLeft: number) => {
+    const server = app.listen(port, "0.0.0.0");
+    server.once("listening", () => {
+      try {
+        fs.writeFileSync(PID_FILE, `${process.pid}\n${port}\n`);
+      } catch { /* pidfile is best-effort */ }
+      console.log(`\n  ⬡  COGNITIVE SWARM ENGINE  →  http://localhost:${port}\n`);
+      if (port !== PORT) {
+        console.log(`  (requested port ${PORT} was busy; using ${port})\n`);
+      }
+    });
+    server.once("error", (err: any) => {
+      if (err.code === "EADDRINUSE" && attemptsLeft > 0) {
+        console.warn(`  Port ${port} is in use — trying ${port + 1}…`);
+        bind(port + 1, attemptsLeft - 1);
+      } else {
+        console.error(`  ✖ Failed to start server: ${err.message}`);
+        process.exit(1);
+      }
+    });
+  };
+
+  bind(PORT, 10);
 }
+
+const PID_FILE = path.join(process.cwd(), ".swarm.pid");
+
+const cleanupPidFile = () => {
+  try {
+    fs.unlinkSync(PID_FILE);
+  } catch { /* already gone */ }
+};
+
+process.on("SIGINT", () => { cleanupPidFile(); process.exit(0); });
+process.on("SIGTERM", () => { cleanupPidFile(); process.exit(0); });
+process.on("exit", cleanupPidFile);
 
 startServer();

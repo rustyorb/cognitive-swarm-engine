@@ -184,6 +184,25 @@ Then open **http://localhost:3000** — or set `PORT` to run elsewhere:
 PORT=8080 npm run dev
 ```
 
+> [!NOTE]
+> If the port is already in use, the server **automatically falls back to the next free port** and prints the real URL — it won't crash on a busy `3000`.
+
+### Convenience scripts
+
+Background start/stop wrappers are included (they default to port **3737** and still auto-fall-back if busy):
+
+```bash
+# Windows
+start.bat            # or:  start.bat 8080
+stop.bat
+
+# macOS / Linux / Git Bash
+./start.sh           # or:  ./start.sh 8080
+./stop.sh
+```
+
+`start` launches the server in the background and prints its URL; `stop` reads the PID it recorded (`.swarm.pid`) and shuts it down.
+
 <details>
 <summary><b>📦 Build for production</b></summary>
 
