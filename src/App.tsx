@@ -63,9 +63,16 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Default the investigative/grounding modes ON for configs saved before they existed.
-        if (parsed.webGrounding === undefined) parsed.webGrounding = true;
-        if (parsed.investigative === undefined) parsed.investigative = true;
+        // One-time migration: turn the investigative + grounding modes ON.
+        // `_v` marks that this ran, so we force it only once and respect the
+        // user's own toggles afterward (even if they later turn a mode off).
+        if (!parsed._v) {
+          parsed.webGrounding = true;
+          parsed.investigative = true;
+          parsed._v = 1;
+          // Persist immediately so the stamp sticks (and we don't re-force on every load).
+          try { localStorage.setItem('swarm_app_config', JSON.stringify(parsed)); } catch { /* quota */ }
+        }
         return parsed;
       } catch (e) {
         console.error(e);

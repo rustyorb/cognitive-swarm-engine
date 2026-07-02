@@ -219,7 +219,13 @@ export function ConfigPanel({ onClose, config, onSave }: ConfigPanelProps) {
   const handlePromptChange = (key: string, value: string) => {
     setLocalConfig(prev => {
       const updated = { ...prev, prompts: { ...(prev.prompts || {}) } };
-      updated.prompts[key] = value;
+      // Collapse "same as default" / blank back to the fallback so we never
+      // store a frozen copy that won't track future default-prompt updates.
+      if (!value.trim() || value === (DEFAULT_PROMPTS as Record<string, string>)[key]) {
+        delete updated.prompts[key];
+      } else {
+        updated.prompts[key] = value;
+      }
       return updated;
     });
   };

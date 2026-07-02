@@ -249,14 +249,15 @@ Open the **⚙ Config** panel (top-right) to wire up providers and assign models
 | Variable | Default | Purpose |
 |:---|:---:|:---|
 | `GEMINI_API_KEY` | — | Default provider key. Loaded from `.env.local`. |
-| `BRAVE_API_KEY` | — | Search backend for Web-Grounded Research on non-Gemini/local models (preferred). |
-| `SERPLY_API_KEY` | — | Alternate search backend, used if `BRAVE_API_KEY` is unset. |
+| `SEARXNG_URL` | — | A running [SearXNG](https://docs.searxng.org) instance (e.g. `http://192.168.0.177:8888`) — preferred search backend for grounding: local, private, no key, aggregated. Requires JSON format enabled. |
+| `BRAVE_API_KEY` | — | Brave Search API — used if `SEARXNG_URL` is unset or returns nothing. |
+| `SERPLY_API_KEY` | — | Serply Search API — last fallback. |
 | `PORT` | `3000` | Port the Express server binds to. |
 | `NODE_ENV` | `development` | `production` serves the static build instead of Vite middleware. |
 | `DISABLE_HMR` | `false` | Disables hot-reload + file watching (used in sandboxed editors). |
 
 > [!TIP]
-> Web-Grounded Research works out of the box for **Gemini** (native Google Search — no key needed beyond `GEMINI_API_KEY`). To ground **other providers and local models**, set `BRAVE_API_KEY` (or `SERPLY_API_KEY`) in `.env.local`.
+> Web-Grounded Research works out of the box for **Gemini** (native Google Search — no key needed beyond `GEMINI_API_KEY`). To ground **other providers and local models**, point `SEARXNG_URL` at a SearXNG instance (best for a fully-local setup) or set `BRAVE_API_KEY` / `SERPLY_API_KEY` in `.env.local`. The backends cascade **SearXNG → Brave → Serply**.
 
 </details>
 

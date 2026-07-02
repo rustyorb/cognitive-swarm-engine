@@ -28,59 +28,89 @@ function getGeminiClient(customApiKey?: string) {
   return new GoogleGenAI({ apiKey: key, httpOptions: { timeout: GENERATION_TIMEOUT_MS } });
 }
 
+const SEARXNG_URL = process.env.SEARXNG_URL || "";
 const BRAVE_API_KEY = process.env.BRAVE_API_KEY || "";
 const SERPLY_API_KEY = process.env.SERPLY_API_KEY || "";
 
-// Live web search helper. Returns up to 5 results, or [] on any failure /
-// missing key (never throws). Prefers Brave; falls back to Serply.
-async function webSearch(query: string): Promise<{ title: string; url: string; description: string }[]> {
-  if (!BRAVE_API_KEY && !SERPLY_API_KEY) return [];
-  try {
-    if (BRAVE_API_KEY) {
-      const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`;
-      const response = await fetch(url, {
-        headers: {
-          "Accept": "application/json",
-          "X-Subscription-Token": BRAVE_API_KEY
-        },
+type SearchResult = { title: string; url: string; description: string };
+
+// Live web search. Returns up to 5 results, or [] when no backend is configured
+// or all fail (never throws). Cascade: local SearXNG → Brave → Serply.
+async function webSearch(query: string): Promise<SearchResult[]> {
+  const q = encodeURIComponent(query);
+
+  // 1) SearXNG — local, no key, aggregated. Requires the JSON format enabled
+  //    in the instance (search.formats includes "json").
+  if (SEARXNG_URL) {
+    try {
+      const base = SEARXNG_URL.replace(/\/+$/, "");
+      const res = await fetch(`${base}/search?q=${q}&format=json`, {
+        headers: { "Accept": "application/json" },
         signal: AbortSignal.timeout(15_000)
       });
-      if (!response.ok) {
-        console.warn(`Brave search failed: HTTP ${response.status}`);
-        return [];
+      if (res.ok) {
+        const data: any = await res.json();
+        const results: SearchResult[] = (data.results ?? []).slice(0, 5).map((r: any) => ({
+          title: r?.title ?? "",
+          url: r?.url ?? "",
+          description: r?.content ?? ""
+        }));
+        if (results.length) return results;
+      } else {
+        console.warn(`SearXNG search failed: HTTP ${res.status}`);
       }
-      const data: any = await response.json();
-      const results = data.web?.results ?? [];
-      return results.slice(0, 5).map((r: any) => ({
-        title: r?.title ?? "",
-        url: r?.url ?? "",
-        description: r?.description ?? ""
-      }));
+    } catch (e: any) {
+      console.warn(`SearXNG search error: ${e?.message || e}`);
     }
-
-    // Fallback to Serply
-    const url = `https://api.serply.io/v1/search/?q=${encodeURIComponent(query)}`;
-    const response = await fetch(url, {
-      headers: {
-        "X-Api-Key": SERPLY_API_KEY,
-        "Content-Type": "application/json"
-      },
-      signal: AbortSignal.timeout(15_000)
-    });
-    if (!response.ok) {
-      console.warn(`Serply search failed: HTTP ${response.status}`);
-      return [];
-    }
-    const data: any = await response.json();
-    const results = data.results ?? [];
-    return results.slice(0, 5).map((r: any) => ({
-      title: r?.title ?? "",
-      url: r?.link || r?.url || "",
-      description: r?.description || r?.snippet || ""
-    }));
-  } catch (e) {
-    return [];
   }
+
+  // 2) Brave
+  if (BRAVE_API_KEY) {
+    try {
+      const res = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${q}&count=5`, {
+        headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_API_KEY },
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (res.ok) {
+        const data: any = await res.json();
+        const results: SearchResult[] = (data.web?.results ?? []).slice(0, 5).map((r: any) => ({
+          title: r?.title ?? "",
+          url: r?.url ?? "",
+          description: r?.description ?? ""
+        }));
+        if (results.length) return results;
+      } else {
+        console.warn(`Brave search failed: HTTP ${res.status}`);
+      }
+    } catch (e: any) {
+      console.warn(`Brave search error: ${e?.message || e}`);
+    }
+  }
+
+  // 3) Serply
+  if (SERPLY_API_KEY) {
+    try {
+      const res = await fetch(`https://api.serply.io/v1/search/?q=${q}`, {
+        headers: { "X-Api-Key": SERPLY_API_KEY, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (res.ok) {
+        const data: any = await res.json();
+        const results: SearchResult[] = (data.results ?? []).slice(0, 5).map((r: any) => ({
+          title: r?.title ?? "",
+          url: r?.link || r?.url || "",
+          description: r?.description || r?.snippet || ""
+        }));
+        if (results.length) return results;
+      } else {
+        console.warn(`Serply search failed: HTTP ${res.status}`);
+      }
+    } catch (e: any) {
+      console.warn(`Serply search error: ${e?.message || e}`);
+    }
+  }
+
+  return [];
 }
 
 function parseJsonString(text: string): any {

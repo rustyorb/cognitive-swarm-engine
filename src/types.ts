@@ -42,5 +42,6 @@ export interface AppConfig {
   webGrounding?: boolean;
   investigative?: boolean;
   prompts?: Record<string, string>;
+  _v?: number;
 }
 
