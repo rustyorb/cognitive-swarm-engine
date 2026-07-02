@@ -545,8 +545,9 @@ async function pipeAgenticStream(params: {
   systemPrompt?: string;
   userPrompt: string;
   res: any;
+  optionalSearch?: boolean; // true for the interrogator: search is allowed but not forced, and never falls back
 }): Promise<SearchResult[]> {
-  const { provider, model, apiKey, baseUrl, systemPrompt, userPrompt, res } = params;
+  const { provider, model, apiKey, baseUrl, systemPrompt, userPrompt, res, optionalSearch } = params;
   const sources = new Map<string, string>(); // url -> title
   let searched = false; // did the model actually invoke web_search at least once?
   const collect = (results: SearchResult[]) => {
@@ -576,7 +577,7 @@ async function pipeAgenticStream(params: {
 
     for (let round = 0; round <= MAX_SEARCH_ROUNDS; round++) {
       const useTools = round < MAX_SEARCH_ROUNDS;
-      const toolChoice = round === 0 ? { type: "tool", name: "web_search" } : { type: "auto" };
+      const toolChoice = (round === 0 && !optionalSearch) ? { type: "tool", name: "web_search" } : { type: "auto" };
       const resp = await fetch(url, {
         method: "POST",
         headers,
@@ -608,12 +609,14 @@ async function pipeAgenticStream(params: {
         messages.push({ role: "user", content: toolResults });
         continue;
       }
-      // Model produced a final answer. If it never searched OR produced no text,
-      // bail (nothing written yet) so the caller can fall back to forced injection
-      // instead of shipping an ungrounded or empty answer.
-      if (!searched) throw new Error("agentic: model did not invoke web_search");
-      if (!text.trim()) throw new Error("agentic: model produced no final answer");
-      res.write(text);
+      // Model produced a final answer. For specialists (forced search), bail if it
+      // never searched or produced nothing, so the caller can fall back. For the
+      // interrogator (optionalSearch), searching is optional — just write the answer.
+      if (!optionalSearch) {
+        if (!searched) throw new Error("agentic: model did not invoke web_search");
+        if (!text.trim()) throw new Error("agentic: model produced no final answer");
+      }
+      if (text) res.write(text);
       return dedup();
     }
     return dedup();
@@ -643,7 +646,7 @@ async function pipeAgenticStream(params: {
 
   for (let round = 0; round <= MAX_SEARCH_ROUNDS; round++) {
     const useTools = round < MAX_SEARCH_ROUNDS;
-    const toolChoice = round === 0 ? { type: "function", function: { name: "web_search" } } : "auto";
+    const toolChoice = (round === 0 && !optionalSearch) ? { type: "function", function: { name: "web_search" } } : "auto";
     const resp = await fetch(url, {
       method: "POST",
       headers,
@@ -685,9 +688,10 @@ async function pipeAgenticStream(params: {
           const delta = choice?.delta;
           if (delta?.content) {
             content += delta.content;
-            // Only stream to the client once we know the model actually searched,
-            // so a "never searched" round can still fall back with nothing written.
-            if (searched) res.write(delta.content);
+            // For specialists, withhold until we know the model searched (so a
+            // "never searched" round can fall back with nothing written). For the
+            // interrogator (optionalSearch), stream immediately — no fallback.
+            if (optionalSearch || searched) res.write(delta.content);
           }
           if (Array.isArray(delta?.tool_calls)) {
             for (const tc of delta.tool_calls) {
@@ -718,10 +722,13 @@ async function pipeAgenticStream(params: {
       continue;
     }
 
-    // Final answer. If the model never searched OR produced no text, bail
-    // (nothing streamed yet) so the caller can fall back to forced injection.
-    if (!searched) throw new Error("agentic: model did not invoke web_search");
-    if (!content.trim()) throw new Error("agentic: model produced no final answer");
+    // Final answer. For specialists, bail (nothing streamed) so the caller can
+    // fall back. For the interrogator (optionalSearch), the answer already
+    // streamed — just finish.
+    if (!optionalSearch) {
+      if (!searched) throw new Error("agentic: model did not invoke web_search");
+      if (!content.trim()) throw new Error("agentic: model produced no final answer");
+    }
     return dedup();
   }
   return dedup();
@@ -1098,15 +1105,28 @@ async function startServer() {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Transfer-Encoding', 'chunked');
 
-      await pipeUnifiedStream({
-        provider,
-        model,
-        apiKey: providerDetails.apiKey,
-        baseUrl: providerDetails.baseUrl,
-        systemPrompt: resolvePrompt(config, interrogatorKey),
-        prompt,
-        res
-      });
+      const systemPrompt = resolvePrompt(config, interrogatorKey);
+      // In exploratory mode with grounding on, let the analyst search the web to
+      // answer (optional — not every question needs it). Strict mode never searches.
+      const canSearch = config?.webGrounding === true && mode !== "strict";
+      const writeSources = (list: SearchResult[]) => {
+        if (list.length) res.write("\n\n**Sources:**\n" + list.map((s, i) => `${i + 1}. [${s.title || s.url}](${s.url})`).join("\n"));
+      };
+
+      if (canSearch && provider === "gemini") {
+        await pipeUnifiedStream({ provider, model, apiKey: providerDetails.apiKey, baseUrl: providerDetails.baseUrl, systemPrompt, prompt, res, grounding: true });
+      } else if (canSearch) {
+        try {
+          const s = await pipeAgenticStream({ provider, model, apiKey: providerDetails.apiKey, baseUrl: providerDetails.baseUrl, systemPrompt, userPrompt: prompt, res, optionalSearch: true });
+          writeSources(s);
+        } catch (agenticErr: any) {
+          if (res.headersSent) throw agenticErr;
+          console.warn(`Interrogate agentic search unavailable for ${provider}; answering without search: ${agenticErr?.message || agenticErr}`);
+          await pipeUnifiedStream({ provider, model, apiKey: providerDetails.apiKey, baseUrl: providerDetails.baseUrl, systemPrompt, prompt, res });
+        }
+      } else {
+        await pipeUnifiedStream({ provider, model, apiKey: providerDetails.apiKey, baseUrl: providerDetails.baseUrl, systemPrompt, prompt, res });
+      }
 
       res.end();
     } catch (error: any) {
