@@ -554,8 +554,11 @@ async function pipeAgenticStream(params: {
   };
   const dedup = (): SearchResult[] =>
     Array.from(sources.entries()).map(([url, title]) => ({ title, url, description: "" }));
+  // Search snippets are attacker-influenceable; neutralize backtick fences and
+  // clamp length before handing them back to the model as tool-result data.
+  const clean = (s: string, max: number) => String(s || "").replace(/`/g, "'").replace(/\s+/g, " ").trim().slice(0, max);
   const toolResultPayload = (results: SearchResult[]) =>
-    JSON.stringify(results.map(r => ({ title: r.title, url: r.url, snippet: r.description })));
+    JSON.stringify(results.map(r => ({ title: clean(r.title, 200), url: r.url, snippet: clean(r.description, 400) })));
 
   if (provider === "anthropic") {
     const url = `${baseUrl || "https://api.anthropic.com/v1"}/messages`;
@@ -605,10 +608,12 @@ async function pipeAgenticStream(params: {
         messages.push({ role: "user", content: toolResults });
         continue;
       }
-      // Model produced a final answer. If it never searched, bail so the caller
-      // can fall back to forced injection instead of shipping an ungrounded answer.
+      // Model produced a final answer. If it never searched OR produced no text,
+      // bail (nothing written yet) so the caller can fall back to forced injection
+      // instead of shipping an ungrounded or empty answer.
       if (!searched) throw new Error("agentic: model did not invoke web_search");
-      if (text) res.write(text);
+      if (!text.trim()) throw new Error("agentic: model produced no final answer");
+      res.write(text);
       return dedup();
     }
     return dedup();
@@ -646,19 +651,63 @@ async function pipeAgenticStream(params: {
         model,
         messages,
         max_tokens: MAX_OUTPUT_TOKENS,
+        stream: true,
         ...(useTools ? { tools, tool_choice: toolChoice } : {})
       }),
       signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS)
     });
     if (!resp.ok) throw new Error(`${provider} tool-use error: ${await resp.text()}`);
-    const data: any = await resp.json();
-    const msg = data.choices?.[0]?.message;
-    if (!msg) throw new Error(`${provider} tool-use error: empty response`);
+    if (!resp.body) throw new Error(`${provider} tool-use error: no response body`);
 
-    if (useTools && Array.isArray(msg.tool_calls) && msg.tool_calls.length) {
+    // Parse the SSE stream: stream final-answer text live, accumulate any
+    // tool_call deltas (id/name/arguments arrive in fragments across chunks).
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let content = "";
+    const toolCalls: any[] = [];
+    let finish = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const clean = line.trim();
+        if (!clean.startsWith("data:")) continue;
+        const dataStr = clean.slice(5).trim();
+        if (dataStr === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(dataStr);
+          const choice = parsed.choices?.[0];
+          const delta = choice?.delta;
+          if (delta?.content) {
+            content += delta.content;
+            // Only stream to the client once we know the model actually searched,
+            // so a "never searched" round can still fall back with nothing written.
+            if (searched) res.write(delta.content);
+          }
+          if (Array.isArray(delta?.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const i = tc.index ?? 0;
+              if (!toolCalls[i]) toolCalls[i] = { id: "", type: "function", function: { name: "", arguments: "" } };
+              if (tc.id) toolCalls[i].id = tc.id;
+              if (tc.function?.name) toolCalls[i].function.name += tc.function.name;
+              if (tc.function?.arguments) toolCalls[i].function.arguments += tc.function.arguments;
+            }
+          }
+          if (choice?.finish_reason) finish = choice.finish_reason;
+        } catch { /* ignore parse errors on keepalive/partial lines */ }
+      }
+    }
+
+    const calls = toolCalls.filter(Boolean);
+    if (useTools && calls.length && finish === "tool_calls") {
       searched = true;
-      messages.push(msg);
-      for (const tc of msg.tool_calls) {
+      messages.push({ role: "assistant", content: content || null, tool_calls: calls });
+      for (const tc of calls) {
         let q = "";
         try { q = JSON.parse(tc?.function?.arguments || "{}").query || ""; } catch { /* bad args */ }
         q = String(q).replace(/[,;]+/g, " ").replace(/\s+/g, " ").trim();
@@ -668,10 +717,11 @@ async function pipeAgenticStream(params: {
       }
       continue;
     }
-    // Final answer. If the model never searched, bail so the caller can fall
-    // back to forced injection instead of shipping an ungrounded answer.
+
+    // Final answer. If the model never searched OR produced no text, bail
+    // (nothing streamed yet) so the caller can fall back to forced injection.
     if (!searched) throw new Error("agentic: model did not invoke web_search");
-    if (msg.content) res.write(msg.content);
+    if (!content.trim()) throw new Error("agentic: model produced no final answer");
     return dedup();
   }
   return dedup();
@@ -906,6 +956,11 @@ async function startServer() {
         // Non-Gemini + grounding: give the model a real web_search tool and let it
         // search agentically (multiple queries as it reasons). Fall back to a
         // one-shot search + inject if the model rejects tools (some local models).
+        // Seed the model with the orchestrator's targeted query so weaker models
+        // don't formulate a poor first search (frontier models refine from here).
+        const searchHint = (typeof agent.search_query === "string" && agent.search_query.trim())
+          ? `\n\n(A strong starting web_search query for your angle: "${agent.search_query.trim().replace(/"/g, "'")}". Refine or add follow-up searches as needed.)`
+          : "";
         let agenticSources: SearchResult[] | null = null;
         try {
           agenticSources = await pipeAgenticStream({
@@ -913,7 +968,7 @@ async function startServer() {
             apiKey: providerDetails.apiKey,
             baseUrl: providerDetails.baseUrl,
             systemPrompt: agent.system_prompt,
-            userPrompt: specialistPrompt,
+            userPrompt: specialistPrompt + searchHint,
             res
           });
         } catch (agenticErr: any) {
