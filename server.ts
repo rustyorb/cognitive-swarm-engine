@@ -30,6 +30,7 @@ QUALITY BAR:
 - Preserve every substantive fact, figure, and nuance from the findings. Lose nothing important.
 - Be specific and analytical. Prefer concrete claims, numbers, and named examples over vague generalities.
 - Aim for depth: a thorough dossier of at least ~1500-2500 words when the material supports it.
+- If the specialist findings contain source links or URLs, preserve them and end the report with a consolidated "## Sources" section listing them as deduplicated markdown links.
 - No introductory pleasantries, no "as an AI", no meta-commentary. Start directly with the title.
 - Format immaculately: correct heading hierarchy, well-formed tables, tight prose.`;
 
@@ -50,6 +51,55 @@ No introductory pleasantries, no "as an AI", no meta-commentary. Answer directly
 function getGeminiClient(customApiKey?: string) {
   const key = customApiKey || process.env.GEMINI_API_KEY || "";
   return new GoogleGenAI({ apiKey: key, httpOptions: { timeout: GENERATION_TIMEOUT_MS } });
+}
+
+const BRAVE_API_KEY = process.env.BRAVE_API_KEY || "";
+const SERPLY_API_KEY = process.env.SERPLY_API_KEY || "";
+
+// Live web search helper. Returns up to 5 results, or [] on any failure /
+// missing key (never throws). Prefers Brave; falls back to Serply.
+async function webSearch(query: string): Promise<{ title: string; url: string; description: string }[]> {
+  if (!BRAVE_API_KEY && !SERPLY_API_KEY) return [];
+  try {
+    if (BRAVE_API_KEY) {
+      const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`;
+      const response = await fetch(url, {
+        headers: {
+          "Accept": "application/json",
+          "X-Subscription-Token": BRAVE_API_KEY
+        },
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (!response.ok) return [];
+      const data: any = await response.json();
+      const results = data.web?.results ?? [];
+      return results.slice(0, 5).map((r: any) => ({
+        title: r?.title ?? "",
+        url: r?.url ?? "",
+        description: r?.description ?? ""
+      }));
+    }
+
+    // Fallback to Serply
+    const url = `https://api.serply.io/v1/search/q=${encodeURIComponent(query)}`;
+    const response = await fetch(url, {
+      headers: {
+        "X-Api-Key": SERPLY_API_KEY,
+        "Content-Type": "application/json"
+      },
+      signal: AbortSignal.timeout(15_000)
+    });
+    if (!response.ok) return [];
+    const data: any = await response.json();
+    const results = data.results ?? [];
+    return results.slice(0, 5).map((r: any) => ({
+      title: r?.title ?? "",
+      url: r?.link || r?.url || "",
+      description: r?.description || r?.snippet || ""
+    }));
+  } catch (e) {
+    return [];
+  }
 }
 
 function parseJsonString(text: string): any {
@@ -297,8 +347,9 @@ async function pipeUnifiedStream(params: {
   systemPrompt?: string;
   prompt: string;
   res: any;
+  grounding?: boolean;
 }): Promise<void> {
-  const { provider, model, apiKey, baseUrl, systemPrompt, prompt, res } = params;
+  const { provider, model, apiKey, baseUrl, systemPrompt, prompt, res, grounding } = params;
 
   if (provider === "gemini") {
     const aiClient = getGeminiClient(apiKey);
@@ -307,13 +358,37 @@ async function pipeUnifiedStream(params: {
       contents: prompt,
       config: {
         systemInstruction: systemPrompt,
-        maxOutputTokens: MAX_OUTPUT_TOKENS
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+        // Native Google Search grounding. Cannot be combined with
+        // jsonMode/responseSchema, but specialists don't use those.
+        ...(grounding ? { tools: [{ googleSearch: {} }] } : {})
       }
     });
+    const sources = new Map<string, string>();
     for await (const chunk of responseStream) {
       if (chunk.text) {
         res.write(chunk.text);
       }
+      if (grounding) {
+        const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        if (groundingChunks) {
+          for (const gc of groundingChunks) {
+            const uri = gc?.web?.uri;
+            if (uri && !sources.has(uri)) {
+              sources.set(uri, gc?.web?.title || uri);
+            }
+          }
+        }
+      }
+    }
+    if (grounding && sources.size > 0) {
+      let sourcesBlock = "\n\n**Sources:**\n";
+      let i = 1;
+      for (const [uri, title] of sources) {
+        sourcesBlock += `${i}. [${title}](${uri})\n`;
+        i++;
+      }
+      res.write(sourcesBlock);
     }
     return;
   }
@@ -635,19 +710,58 @@ async function startServer() {
       const provider = config?.models?.specialist?.provider || "gemini";
       const model = config?.models?.specialist?.model || "gemini-3.5-flash";
       const providerDetails = config?.providers?.[provider] || { apiKey: "", baseUrl: "" };
+      const grounding = config?.webGrounding === true;
 
       res.setHeader('Content-Type', 'text/plain');
       res.setHeader('Transfer-Encoding', 'chunked');
 
-      await pipeUnifiedStream({
-        provider,
-        model,
-        apiKey: providerDetails.apiKey,
-        baseUrl: providerDetails.baseUrl,
-        systemPrompt: agent.system_prompt,
-        prompt: `You are ONE specialist in a research swarm, assigned a single dimension of the question. Investigate the query strictly within your domain and return your FINDINGS — the raw intelligence a separate report-writing agent will weave into the final report. You are NOT writing the finished report yourself.\n\nReport dense, specific findings: concrete claims, evidence, figures, mechanisms, named examples, causal links, and the tensions or open questions you surface. Light structure is fine (short thematic subheadings, bullets) to keep it scannable.\n\nDo NOT frame this as a standalone report: no overall title, no executive summary, no conclusion or "in summary" wrap-up — those belong to the report writer. Do not restate the whole question or stray into other specialists' territory. Stay in your lane and go deep. Substance over polish.\n\nQuery: ${query}`,
-        res
-      });
+      const specialistPrompt = `You are ONE specialist in a research swarm, assigned a single dimension of the question. Investigate the query strictly within your domain and return your FINDINGS — the raw intelligence a separate report-writing agent will weave into the final report. You are NOT writing the finished report yourself.\n\nReport dense, specific findings: concrete claims, evidence, figures, mechanisms, named examples, causal links, and the tensions or open questions you surface. Light structure is fine (short thematic subheadings, bullets) to keep it scannable.\n\nDo NOT frame this as a standalone report: no overall title, no executive summary, no conclusion or "in summary" wrap-up — those belong to the report writer. Do not restate the whole question or stray into other specialists' territory. Stay in your lane and go deep. Substance over polish.\n\nQuery: ${query}`;
+
+      // HYBRID web grounding: Gemini uses native Google Search; other
+      // providers get live web results injected manually via webSearch.
+      let manualResults: { title: string; url: string; description: string }[] = [];
+      if (grounding && provider === "gemini") {
+        await pipeUnifiedStream({
+          provider,
+          model,
+          apiKey: providerDetails.apiKey,
+          baseUrl: providerDetails.baseUrl,
+          systemPrompt: agent.system_prompt,
+          prompt: specialistPrompt,
+          res,
+          grounding: true
+        });
+      } else {
+        let finalPrompt = specialistPrompt;
+        if (grounding && provider !== "gemini") {
+          manualResults = await webSearch(`${query} ${agent.designation}`);
+          if (manualResults.length) {
+            const resultsBlock = manualResults
+              .map((r, idx) => `[${idx + 1}] ${r.title} — ${r.url}\n${r.description}`)
+              .join("\n\n");
+            finalPrompt = `LIVE WEB SEARCH RESULTS are provided below. Rely on them for current facts, and cite the ones you use inline as [n] matching their numbers.\n\n=== WEB RESULTS ===\n${resultsBlock}\n\n=== TASK ===\n${specialistPrompt}`;
+          }
+        }
+
+        await pipeUnifiedStream({
+          provider,
+          model,
+          apiKey: providerDetails.apiKey,
+          baseUrl: providerDetails.baseUrl,
+          systemPrompt: agent.system_prompt,
+          prompt: finalPrompt,
+          res,
+          grounding: false
+        });
+
+        if (manualResults.length) {
+          let sourcesBlock = "\n\n**Sources:**\n";
+          manualResults.forEach((r, idx) => {
+            sourcesBlock += `${idx + 1}. [${r.title}](${r.url})\n`;
+          });
+          res.write(sourcesBlock);
+        }
+      }
 
       res.end();
     } catch (error: any) {
@@ -735,6 +849,52 @@ async function startServer() {
         apiKey: providerDetails.apiKey,
         baseUrl: providerDetails.baseUrl,
         systemPrompt: INTERROGATOR_SYSTEM_PROMPT,
+        prompt,
+        res
+      });
+
+      res.end();
+    } catch (error: any) {
+      console.error(error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      } else {
+        res.destroy(error);
+      }
+    }
+  });
+
+  // POST /api/lens
+  const LENS_INSTRUCTIONS: Record<string, string> = {
+    executive: "Rewrite this report as a one-page executive brief: 3–5 crisp paragraphs plus a short bulleted \"Key Takeaways\" list. Be ruthlessly concise and lead with the bottom line.",
+    technical: "Rewrite this report as a technical deep-dive for an expert audience: preserve and expand mechanisms, figures, edge cases, and caveats; drop hand-holding; maximal precision.",
+    eli5: "Explain this report for a bright, curious 12-year-old: plain language, concrete analogies, zero jargon, while staying accurate.",
+    skeptic: "Write a skeptic's cut of this report: critically challenge its claims, surface weak evidence, hidden assumptions, and the strongest counterarguments. Be adversarial but fair.",
+    slides: "Convert this report into a slide-deck outline: 8–12 slides, each a bold slide title followed by 3–5 concise bullets, in markdown."
+  };
+
+  app.post("/api/lens", async (req, res) => {
+    try {
+      const { dossier, lens, config } = req.body;
+      if (!dossier || !lens) return res.status(400).json({ error: "Missing payload" });
+      if (!LENS_INSTRUCTIONS[lens]) return res.status(400).json({ error: `Unknown lens: ${lens}` });
+
+      const provider = config?.models?.synthesizer?.provider || "gemini";
+      const model = config?.models?.synthesizer?.model || "gemini-3.1-pro-preview";
+      const providerDetails = config?.providers?.[provider] || { apiKey: "", baseUrl: "" };
+
+      const systemPrompt = "You transform an existing research report into a requested alternative form. Output only the transformed report in clean GitHub-flavored markdown — no preamble, no meta-commentary.";
+      const prompt = `${LENS_INSTRUCTIONS[lens] || 'Rewrite the report clearly.'}\n\n=== SOURCE REPORT ===\n${dossier}`;
+
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Transfer-Encoding', 'chunked');
+
+      await pipeUnifiedStream({
+        provider,
+        model,
+        apiKey: providerDetails.apiKey,
+        baseUrl: providerDetails.baseUrl,
+        systemPrompt,
         prompt,
         res
       });

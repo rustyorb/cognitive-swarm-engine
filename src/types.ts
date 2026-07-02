@@ -39,5 +39,6 @@ export interface AppConfig {
     specialist: { provider: string; model: string };
     synthesizer: { provider: string; model: string };
   };
+  webGrounding?: boolean;
 }
 

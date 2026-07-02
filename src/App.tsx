@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { BrainCircuit, Cpu, Zap, Binary, Check, Database, Settings, Copy, Download, History, X, ChevronDown, ChevronUp, LayoutGrid, Waypoints } from 'lucide-react';
+import { BrainCircuit, Cpu, Zap, Binary, Check, Database, Settings, Copy, Download, History, X, ChevronDown, ChevronUp, LayoutGrid, Waypoints, Globe, Telescope } from 'lucide-react';
 import { AgentProfile, AgentExecutionState, AppConfig } from './types';
 import { AgentCard } from './components/AgentCard';
 import { ConfigPanel } from './components/ConfigPanel';
@@ -35,8 +35,18 @@ const DEFAULT_CONFIG: AppConfig = {
     orchestrator: { provider: 'gemini', model: 'gemini-3.5-flash' },
     specialist: { provider: 'gemini', model: 'gemini-3.5-flash' },
     synthesizer: { provider: 'gemini', model: 'gemini-3.1-pro-preview' }
-  }
+  },
+  webGrounding: false
 };
+
+const LENSES: { key: string; label: string }[] = [
+  { key: 'full', label: 'Full Dossier' },
+  { key: 'executive', label: 'Executive Brief' },
+  { key: 'technical', label: 'Deep-Dive' },
+  { key: 'eli5', label: 'ELI5' },
+  { key: 'skeptic', label: "Skeptic's Cut" },
+  { key: 'slides', label: 'Slide Outline' }
+];
 
 export default function App() {
   const [query, setQuery] = useState('');
@@ -66,6 +76,10 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('constellation');
   const [activeRunId, setActiveRunId] = useState('');
   const [regenerating, setRegenerating] = useState(false);
+  const [activeLens, setActiveLens] = useState('full');
+  const [lensCache, setLensCache] = useState<Record<string, string>>({});
+  const [lensStreaming, setLensStreaming] = useState(false);
+  const lensAbortRef = useRef<AbortController | null>(null);
   const [history, setHistory] = useState<RunRecord[]>(() => {
     try {
       const saved = localStorage.getItem(HISTORY_KEY);
@@ -138,7 +152,19 @@ export default function App() {
     });
   };
 
+  // The dossier text currently on screen (the selected lens, or the original).
+  const shownDossier = activeLens === 'full' ? dossier : (lensCache[activeLens] ?? dossier);
+
+  const resetLenses = () => {
+    lensAbortRef.current?.abort();
+    lensAbortRef.current = null;
+    setActiveLens('full');
+    setLensCache({});
+    setLensStreaming(false);
+  };
+
   const loadRun = (run: RunRecord) => {
+    resetLenses();
     setQuery(run.query);
     setDossier(run.dossier);
     setAgents([]);
@@ -153,9 +179,9 @@ export default function App() {
   };
 
   const handleCopy = async () => {
-    if (!dossier) return;
+    if (!shownDossier) return;
     try {
-      await navigator.clipboard.writeText(dossier);
+      await navigator.clipboard.writeText(shownDossier);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch (e) {
@@ -164,16 +190,66 @@ export default function App() {
   };
 
   const handleDownload = () => {
-    if (!dossier) return;
-    const blob = new Blob([dossier], { type: 'text/markdown' });
+    if (!shownDossier) return;
+    const blob = new Blob([shownDossier], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `swarm-dossier-${Date.now()}.md`;
+    const suffix = activeLens === 'full' ? '' : `-${activeLens}`;
+    a.download = `swarm-dossier${suffix}-${Date.now()}.md`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  };
+
+  // Re-render the finished dossier through a "lens" (executive brief, ELI5, …).
+  // 'full' shows the original; other lenses stream once from /api/lens, then cache.
+  const handleLens = async (lens: string) => {
+    if (lens === 'full') {
+      lensAbortRef.current?.abort();
+      setLensStreaming(false);
+      setActiveLens('full');
+      return;
+    }
+    setActiveLens(lens);
+    if (lensCache[lens] || !dossier) return; // already generated (or nothing to transform)
+
+    lensAbortRef.current?.abort();
+    const controller = new AbortController();
+    lensAbortRef.current = controller;
+    setLensStreaming(true);
+    setLensCache(prev => ({ ...prev, [lens]: '' }));
+
+    try {
+      const res = await fetch('/api/lens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dossier, lens, config }),
+        signal: controller.signal
+      });
+      if (!res.ok || !res.body) throw new Error(`Lens failed: ${await res.text()}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let acc = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        setLensCache(prev => ({ ...prev, [lens]: acc }));
+      }
+      acc += decoder.decode();
+      reader.releaseLock();
+      setLensCache(prev => ({ ...prev, [lens]: acc || '_(empty response)_' }));
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        setLensCache(prev => ({ ...prev, [lens]: `**Lens error:** ${err.message || 'Unknown error'}` }));
+      }
+    } finally {
+      setLensStreaming(false);
+      lensAbortRef.current = null;
+    }
   };
 
   // Ask the orchestrator to design a swarm for the current query.
@@ -251,11 +327,16 @@ export default function App() {
     setErrorMsg(null);
   };
 
+  const toggleGrounding = () => {
+    handleConfigSave({ ...config, webGrounding: !config.webGrounding });
+  };
+
   // Stage 2: run the (possibly edited) swarm and synthesize the dossier.
   const launchSwarm = async () => {
     const launchAgents = agents;
     if (launchAgents.length === 0) return;
 
+    resetLenses();
     setPhase('EXECUTING');
     setErrorMsg(null);
     setDossier(null);
@@ -460,6 +541,22 @@ export default function App() {
                 </button>
               )}
             </div>
+
+            <button
+              type="button"
+              onClick={toggleGrounding}
+              disabled={isRunning}
+              aria-pressed={!!config.webGrounding}
+              className={`self-start flex items-center gap-2 px-3 py-1.5 rounded-lg border font-mono text-xs uppercase tracking-widest transition-colors disabled:opacity-50 ${
+                config.webGrounding
+                  ? 'border-phosphor-800 bg-phosphor-950/40 text-phosphor-300 glow-amber'
+                  : 'border-stone-800 bg-black text-stone-500 hover:text-phosphor-400 hover:border-phosphor-900/50'
+              }`}
+              title="Ground specialist research in live web search (Gemini uses native search; other providers use Brave/Serply if a key is set)"
+            >
+              <Globe className={`w-3.5 h-3.5 ${config.webGrounding ? 'animate-spin-slow' : ''}`} />
+              Web-Grounded Research: {config.webGrounding ? 'ON' : 'OFF'}
+            </button>
           </form>
         </section>
 
@@ -549,7 +646,7 @@ export default function App() {
                 Compiled Markdown Dossier
               </h3>
               <div className="flex items-center gap-3">
-                <span className="font-mono text-xs text-stone-500">{dossier.length} BYTES</span>
+                <span className="font-mono text-xs text-stone-500">{(shownDossier || '').length} BYTES</span>
                 <button
                   type="button"
                   onClick={handleCopy}
@@ -568,6 +665,35 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* Lens bar — re-render the finished dossier for different audiences */}
+            {phase === 'DONE' && (
+              <div className="border-b border-stone-800 bg-stone-950/60 px-4 sm:px-6 py-2.5 flex items-center gap-2 flex-wrap">
+                <span className="flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-stone-500 mr-1">
+                  <Telescope className="w-3.5 h-3.5" /> Lens
+                </span>
+                {LENSES.map(l => {
+                  const isActive = activeLens === l.key;
+                  return (
+                    <button
+                      key={l.key}
+                      type="button"
+                      onClick={() => handleLens(l.key)}
+                      disabled={lensStreaming && !isActive}
+                      className={`px-3 py-1 rounded-full font-mono text-[11px] uppercase tracking-wider border transition-colors disabled:opacity-40 ${
+                        isActive
+                          ? 'border-phosphor-700 bg-phosphor-950/50 text-phosphor-300'
+                          : 'border-stone-800 bg-black text-stone-500 hover:text-phosphor-400 hover:border-phosphor-900/50'
+                      }`}
+                    >
+                      {l.label}
+                      {isActive && lensStreaming && l.key !== 'full' && <span className="cursor-blink" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             <div className="p-5 sm:p-8 prose prose-invert prose-stone max-w-none
                             prose-headings:font-display prose-headings:tracking-tight
                             prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl
@@ -576,7 +702,11 @@ export default function App() {
                             prose-pre:bg-stone-950 prose-pre:border prose-pre:border-stone-800
                             prose-th:text-phosphor-300 prose-th:border-stone-700 prose-td:border-stone-800 prose-blockquote:border-phosphor-700
                             prose-table:block prose-table:overflow-x-auto">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{dossier}</ReactMarkdown>
+              {activeLens !== 'full' && lensStreaming && !shownDossier ? (
+                <p className="font-mono text-sm text-phosphor-400 cursor-blink">Refracting dossier through {LENSES.find(l => l.key === activeLens)?.label} lens</p>
+              ) : (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{shownDossier || ''}</ReactMarkdown>
+              )}
             </div>
           </section>
         )}

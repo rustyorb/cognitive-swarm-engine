@@ -122,6 +122,8 @@ sequenceDiagram
 
 | | Feature | Description |
 |:---:|:---|:---|
+| 🌐 | **Web-Grounded Research** | Put the swarm on the live internet. Gemini specialists use native Google Search grounding; other providers (incl. local) use Brave/Serply search injected into their prompts. Every run cites real sources and the report ends with a consolidated **Sources** section. Toggle per run. |
+| 🔭 | **Dossier Lenses** | Re-render the finished report for different audiences — Executive Brief, Deep-Dive, ELI5, Skeptic's Cut, Slide Outline — without re-running the swarm. Streams once, then cached; switch instantly. |
 | 🎬 | **Swarm Director** | After the orchestrator designs the swarm, review it before launch: rename specialists, rewrite their directives, delete weak angles, add your own, or re-roll the whole swarm. Human-in-the-loop control. |
 | 🕸️ | **Live Swarm Constellation** | An animated node-graph view of the swarm — specialist nodes orbit a central core, edges crackle with energy as each agent streams, and everything converges when synthesis ignites. Toggle between Constellation and Grid. |
 | 💬 | **Interrogate the Swarm** | Chat with your finished dossier. Ask follow-ups answered live by an analyst grounded strictly in the specialist findings — multi-turn, cited, and honest about what the research didn't cover. |
@@ -225,9 +227,14 @@ Open the **⚙ Config** panel (top-right) to wire up providers and assign models
 | Variable | Default | Purpose |
 |:---|:---:|:---|
 | `GEMINI_API_KEY` | — | Default provider key. Loaded from `.env.local`. |
+| `BRAVE_API_KEY` | — | Search backend for Web-Grounded Research on non-Gemini/local models (preferred). |
+| `SERPLY_API_KEY` | — | Alternate search backend, used if `BRAVE_API_KEY` is unset. |
 | `PORT` | `3000` | Port the Express server binds to. |
 | `NODE_ENV` | `development` | `production` serves the static build instead of Vite middleware. |
 | `DISABLE_HMR` | `false` | Disables hot-reload + file watching (used in sandboxed editors). |
+
+> [!TIP]
+> Web-Grounded Research works out of the box for **Gemini** (native Google Search — no key needed beyond `GEMINI_API_KEY`). To ground **other providers and local models**, set `BRAVE_API_KEY` (or `SERPLY_API_KEY`) in `.env.local`.
 
 </details>
 
@@ -257,7 +264,8 @@ cognitive-swarm-engine/
 │   ├── /api/orchestrate          #   → design + validate the agent swarm
 │   ├── /api/execute              #   → stream one specialist's research
 │   ├── /api/synthesize           #   → compile the final dossier (streamed)
-│   └── /api/interrogate          #   → answer follow-ups grounded in the dossier
+│   ├── /api/interrogate          #   → answer follow-ups grounded in the dossier
+│   └── /api/lens                 #   → re-render the dossier for a different audience
 ├── src/
 │   ├── App.tsx                   # Pipeline state machine + layout
 │   ├── types.ts                  # Shared type contracts
@@ -302,6 +310,8 @@ cognitive-swarm-engine/
 - [x] Human-in-the-loop swarm editing (Swarm Director)
 - [x] Live swarm graph visualization (Constellation)
 - [x] Conversational dossier Q&A (Interrogate the Swarm)
+- [x] Web-grounded research with citations (native Gemini + Brave/Serply)
+- [x] Audience lenses for the dossier
 - [ ] Export dossier to PDF
 - [ ] Persist Q&A threads with run history
 - [ ] Shareable run permalinks
