@@ -6,48 +6,22 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import { DEFAULT_PROMPTS } from "./src/prompts";
+
+// Resolve an editable prompt: use the client's override when present and
+// non-blank, otherwise the built-in default.
+function resolvePrompt(config: any, key: keyof typeof DEFAULT_PROMPTS): string {
+  const override = config?.prompts?.[key];
+  return typeof override === "string" && override.trim() ? override : DEFAULT_PROMPTS[key];
+}
 
 const MODEL_LIST_TIMEOUT_MS = 15_000;
 const GENERATION_TIMEOUT_MS = 300_000;
 // Generous output budget so long, multi-page dossiers are not truncated.
 const MAX_OUTPUT_TOKENS = 8192;
 
-const SYNTHESIZER_SYSTEM_PROMPT = `You are the Report Writer — the lead analyst of a research swarm. Each specialist has returned RAW FINDINGS from their corner of the question; your job is to WRITE the definitive report from them: select what matters, integrate across specialists, resolve overlaps and contradictions, and elevate raw research notes into authoritative, flowing prose.
-
-Produce a COMPREHENSIVE, dense, multi-page report. This is the flagship deliverable — the only finished report in the pipeline. Requirements:
-
-STRUCTURE (use GitHub-flavored markdown):
-- Open with a level-1 title: "# DOSSIER: <concise title of the subject>".
-- Follow with a "## Executive Summary" — 2-4 tight paragraphs capturing the core conclusions.
-- Then a "## Key Findings" section as a bulleted list of the most important, specific takeaways.
-- Then several thematic "## " sections (one per major dimension surfaced by the specialists), each broken into "### " subsections with real analysis — not bullet dumps.
-- Use markdown TABLES wherever data, comparisons, tradeoffs, or classifications appear.
-- Include a "## Tensions & Contradictions" section reconciling where specialists disagreed or where findings pull in opposite directions.
-- Include a "## Strategic Implications & Outlook" section with forward-looking analysis.
-- Close with a "## Conclusion".
-
-QUALITY BAR:
-- Synthesize and integrate — connect findings across specialists; do not just concatenate them.
-- Preserve every substantive fact, figure, and nuance from the findings. Lose nothing important.
-- Be specific and analytical. Prefer concrete claims, numbers, and named examples over vague generalities.
-- Aim for depth: a thorough dossier of at least ~1500-2500 words when the material supports it.
-- If the specialist findings contain source links or URLs, preserve them and end the report with a consolidated "## Sources" section listing them as deduplicated markdown links.
-- No introductory pleasantries, no "as an AI", no meta-commentary. Start directly with the title.
-- Format immaculately: correct heading hierarchy, well-formed tables, tight prose.`;
-
-const INTERROGATOR_SYSTEM_PROMPT = `You are the Interrogation Node — an expert analyst who answers follow-up questions about an EXISTING research dossier compiled by a swarm of specialists.
-
-Ground every answer STRICTLY in the provided material: the compiled dossier and the raw specialist findings supplied to you. Do not invent facts, figures, or sources that are not present in that material.
-
-HOW TO ANSWER:
-- Synthesize across the dossier and the specialist findings — connect and reconcile information rather than quoting a single passage.
-- When a specific claim, figure, or conclusion traces to a particular specialist, cite which specialist it came from (e.g. "per the <designation> specialist").
-- Be direct and get to the point. Answer the actual question asked.
-- Format cleanly in GitHub-flavored markdown: use headings, bullet lists, and tables where they genuinely aid clarity — but keep it proportional.
-- Produce a FOCUSED answer, not a whole new dossier. Match the scope of the question; do not pad.
-- If the dossier and findings do not cover what is being asked, say so plainly and explicitly ("The dossier does not address ...") instead of speculating or fabricating an answer. You may note what related information IS available.
-
-No introductory pleasantries, no "as an AI", no meta-commentary. Answer directly.`;
+// Swarm prompts are defined in src/prompts.ts and resolved via resolvePrompt()
+// so users can override any of them from the config panel.
 
 function getGeminiClient(customApiKey?: string) {
   const key = customApiKey || process.env.GEMINI_API_KEY || "";
@@ -665,8 +639,11 @@ async function startServer() {
       const model = config?.models?.orchestrator?.model || "gemini-3.5-flash";
       const providerDetails = config?.providers?.[provider] || { apiKey: "", baseUrl: "" };
 
-      let prompt = `You are the Orchestrator AI. Analyze the following research query and generate exactly 5 to 7 highly specialized Agent Profiles to investigate it from different critical angles. \n\nQuery: ${query}`;
-      const systemPrompt = provider === "gemini" 
+      const investigative = config?.investigative === true;
+      const orchestratorDirective = resolvePrompt(config, "orchestrator") +
+        (investigative ? `\n\n${resolvePrompt(config, "investigative")}` : "");
+      let prompt = `${orchestratorDirective}\n\nQuery: ${query}`;
+      const systemPrompt = provider === "gemini"
         ? "You are the Orchestrator AI. Your job is to output a clean, valid JSON array containing 5 to 7 specialized Agent Profiles to research a query."
         : "You are the Orchestrator AI. Your job is to output a clean, valid JSON object containing an 'agents' key which holds an array of 5 to 7 specialized Agent Profiles to research a query.";
 
@@ -718,11 +695,12 @@ async function startServer() {
       const model = config?.models?.specialist?.model || "gemini-3.5-flash";
       const providerDetails = config?.providers?.[provider] || { apiKey: "", baseUrl: "" };
       const grounding = config?.webGrounding === true;
+      const investigative = config?.investigative === true;
 
       res.setHeader('Content-Type', 'text/plain');
       res.setHeader('Transfer-Encoding', 'chunked');
 
-      const specialistPrompt = `You are ONE specialist in a research swarm, assigned a single dimension of the question. Investigate the query strictly within your domain and return your FINDINGS — the raw intelligence a separate report-writing agent will weave into the final report. You are NOT writing the finished report yourself.\n\nReport dense, specific findings: concrete claims, evidence, figures, mechanisms, named examples, causal links, and the tensions or open questions you surface. Light structure is fine (short thematic subheadings, bullets) to keep it scannable.\n\nDo NOT frame this as a standalone report: no overall title, no executive summary, no conclusion or "in summary" wrap-up — those belong to the report writer. Do not restate the whole question or stray into other specialists' territory. Stay in your lane and go deep. Substance over polish.\n\nQuery: ${query}`;
+      const specialistPrompt = `${resolvePrompt(config, "specialist")}${investigative ? `\n\n${resolvePrompt(config, "investigative")}` : ""}\n\nQuery: ${query}`;
 
       // HYBRID web grounding: Gemini uses native Google Search; other
       // providers get live web results injected manually via webSearch.
@@ -808,7 +786,7 @@ async function startServer() {
         model,
         apiKey: providerDetails.apiKey,
         baseUrl: providerDetails.baseUrl,
-        systemPrompt: SYNTHESIZER_SYSTEM_PROMPT,
+        systemPrompt: resolvePrompt(config, "synthesizer"),
         prompt: `Compile the findings of the specialist swarm into a single authoritative dossier answering the original research query.\n\n=== ORIGINAL QUERY ===\n${query}\n\n=== SPECIALIST FINDINGS ===\n${promptContext}`,
         res
       });
@@ -827,8 +805,9 @@ async function startServer() {
   // POST /api/interrogate
   app.post("/api/interrogate", async (req, res) => {
     try {
-      const { query, dossier, findings, question, history, config } = req.body;
+      const { query, dossier, findings, question, history, config, mode } = req.body;
       if (!question || !dossier) return res.status(400).json({ error: "Missing payload" });
+      const interrogatorKey = mode === "strict" ? "interrogatorStrict" : "interrogatorExploratory";
 
       const provider = config?.models?.synthesizer?.provider || "gemini";
       const model = config?.models?.synthesizer?.model || "gemini-3.1-pro-preview";
@@ -848,7 +827,7 @@ async function startServer() {
             .join("\n\n")
         : "";
 
-      const prompt = `Answer the follow-up question below, grounded strictly in the dossier and specialist findings.\n\n=== ORIGINAL QUERY ===\n${query || "(not provided)"}\n\n=== COMPILED DOSSIER ===\n${dossier}\n\n=== SPECIALIST FINDINGS ===\n${findingsContext}${historyContext ? `\n\n=== PRIOR Q&A ===\n${historyContext}` : ""}\n\n=== NEW QUESTION ===\n${question}`;
+      const prompt = `Answer the follow-up question below, using the dossier and specialist findings as your primary source.\n\n=== ORIGINAL QUERY ===\n${query || "(not provided)"}\n\n=== COMPILED DOSSIER ===\n${dossier}\n\n=== SPECIALIST FINDINGS ===\n${findingsContext}${historyContext ? `\n\n=== PRIOR Q&A ===\n${historyContext}` : ""}\n\n=== NEW QUESTION ===\n${question}`;
 
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Transfer-Encoding', 'chunked');
@@ -858,7 +837,7 @@ async function startServer() {
         model,
         apiKey: providerDetails.apiKey,
         baseUrl: providerDetails.baseUrl,
-        systemPrompt: INTERROGATOR_SYSTEM_PROMPT,
+        systemPrompt: resolvePrompt(config, interrogatorKey),
         prompt,
         res
       });

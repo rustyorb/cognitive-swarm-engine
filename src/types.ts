@@ -40,5 +40,7 @@ export interface AppConfig {
     synthesizer: { provider: string; model: string };
   };
   webGrounding?: boolean;
+  investigative?: boolean;
+  prompts?: Record<string, string>;
 }
 

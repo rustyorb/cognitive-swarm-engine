@@ -27,6 +27,7 @@ export function InterrogatePanel({ runId, query, dossier, findings, config }: In
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<'exploratory' | 'strict'>('exploratory');
 
   const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -71,7 +72,7 @@ export function InterrogatePanel({ runId, query, dossier, findings, config }: In
       const res = await fetch('/api/interrogate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, dossier, findings, question, history, config }),
+        body: JSON.stringify({ query, dossier, findings, question, history, config, mode }),
         signal: controller.signal
       });
 
@@ -137,11 +138,27 @@ export function InterrogatePanel({ runId, query, dossier, findings, config }: In
 
   return (
     <div className="border border-stone-800 rounded-xl bg-black/40 overflow-hidden">
-      <div className="bg-stone-900 border-b border-stone-800 px-6 py-3 flex items-center gap-2">
-        <MessageCircleQuestion className="w-4 h-4 text-phosphor-400" />
-        <h3 className="font-display text-sm text-phosphor-400 uppercase tracking-widest">
+      <div className="bg-stone-900 border-b border-stone-800 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <h3 className="font-display text-sm text-phosphor-400 uppercase tracking-widest flex items-center gap-2">
+          <MessageCircleQuestion className="w-4 h-4" />
           Interrogate the Swarm
         </h3>
+        <div className="flex items-center gap-1 bg-black/50 border border-stone-800 rounded-lg p-1" title="Exploratory: may reason beyond the dossier (labeling inference). Strict: dossier-only.">
+          <button
+            type="button"
+            onClick={() => setMode('exploratory')}
+            className={`px-2.5 py-1 rounded font-mono text-[11px] uppercase tracking-widest transition-colors ${mode === 'exploratory' ? 'bg-phosphor-950 text-phosphor-300' : 'text-stone-500 hover:text-phosphor-400'}`}
+          >
+            Exploratory
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('strict')}
+            className={`px-2.5 py-1 rounded font-mono text-[11px] uppercase tracking-widest transition-colors ${mode === 'strict' ? 'bg-phosphor-950 text-phosphor-300' : 'text-stone-500 hover:text-phosphor-400'}`}
+          >
+            Strict
+          </button>
+        </div>
       </div>
 
       <div ref={transcriptRef} className="max-h-96 overflow-y-auto px-4 sm:px-6 py-4 flex flex-col gap-4">

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { BrainCircuit, Cpu, Zap, Binary, Check, Database, Settings, Copy, Download, History, X, ChevronDown, ChevronUp, LayoutGrid, Waypoints, Globe, Telescope } from 'lucide-react';
+import { BrainCircuit, Cpu, Zap, Binary, Check, Database, Settings, Copy, Download, History, X, ChevronDown, ChevronUp, LayoutGrid, Waypoints, Globe, Telescope, Fingerprint } from 'lucide-react';
 import { AgentProfile, AgentExecutionState, AppConfig } from './types';
 import { AgentCard } from './components/AgentCard';
 import { ConfigPanel } from './components/ConfigPanel';
@@ -36,7 +36,8 @@ const DEFAULT_CONFIG: AppConfig = {
     specialist: { provider: 'gemini', model: 'gemini-3.5-flash' },
     synthesizer: { provider: 'gemini', model: 'gemini-3.1-pro-preview' }
   },
-  webGrounding: false
+  webGrounding: true,
+  investigative: true
 };
 
 const LENSES: { key: string; label: string }[] = [
@@ -61,7 +62,11 @@ export default function App() {
     const saved = localStorage.getItem('swarm_app_config');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        // Default the investigative/grounding modes ON for configs saved before they existed.
+        if (parsed.webGrounding === undefined) parsed.webGrounding = true;
+        if (parsed.investigative === undefined) parsed.investigative = true;
+        return parsed;
       } catch (e) {
         console.error(e);
       }
@@ -338,6 +343,10 @@ export default function App() {
     handleConfigSave({ ...config, webGrounding: !config.webGrounding });
   };
 
+  const toggleInvestigative = () => {
+    handleConfigSave({ ...config, investigative: !config.investigative });
+  };
+
   // Stage 2: run the (possibly edited) swarm and synthesize the dossier.
   const launchSwarm = async () => {
     const launchAgents = agents;
@@ -549,21 +558,39 @@ export default function App() {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={toggleGrounding}
-              disabled={isRunning}
-              aria-pressed={!!config.webGrounding}
-              className={`self-start flex items-center gap-2 px-3 py-1.5 rounded-lg border font-mono text-xs uppercase tracking-widest transition-colors disabled:opacity-50 ${
-                config.webGrounding
-                  ? 'border-phosphor-800 bg-phosphor-950/40 text-phosphor-300 glow-amber'
-                  : 'border-stone-800 bg-black text-stone-500 hover:text-phosphor-400 hover:border-phosphor-900/50'
-              }`}
-              title="Ground specialist research in live web search (Gemini uses native search; other providers use Brave/Serply if a key is set)"
-            >
-              <Globe className={`w-3.5 h-3.5 ${config.webGrounding ? 'animate-spin-slow' : ''}`} />
-              Web-Grounded Research: {config.webGrounding ? 'ON' : 'OFF'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleInvestigative}
+                disabled={isRunning}
+                aria-pressed={!!config.investigative}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border font-mono text-xs uppercase tracking-widest transition-colors disabled:opacity-50 ${
+                  config.investigative
+                    ? 'border-phosphor-800 bg-phosphor-950/40 text-phosphor-300 glow-amber'
+                    : 'border-stone-800 bg-black text-stone-500 hover:text-phosphor-400 hover:border-phosphor-900/50'
+                }`}
+                title="Investigative mode: the swarm hunts non-obvious connections, biographical/institutional context, and documented-but-underemphasized threads instead of the canonical summary."
+              >
+                <Fingerprint className={`w-3.5 h-3.5 ${config.investigative ? 'animate-pulse' : ''}`} />
+                Investigative: {config.investigative ? 'ON' : 'OFF'}
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleGrounding}
+                disabled={isRunning}
+                aria-pressed={!!config.webGrounding}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border font-mono text-xs uppercase tracking-widest transition-colors disabled:opacity-50 ${
+                  config.webGrounding
+                    ? 'border-phosphor-800 bg-phosphor-950/40 text-phosphor-300 glow-amber'
+                    : 'border-stone-800 bg-black text-stone-500 hover:text-phosphor-400 hover:border-phosphor-900/50'
+                }`}
+                title="Ground specialist research in live web search (Gemini uses native search; other providers use Brave/Serply if a key is set)"
+              >
+                <Globe className={`w-3.5 h-3.5 ${config.webGrounding ? 'animate-spin-slow' : ''}`} />
+                Web-Grounded: {config.webGrounding ? 'ON' : 'OFF'}
+              </button>
+            </div>
           </form>
         </section>
 
