@@ -123,9 +123,9 @@ sequenceDiagram
 | | Feature | Description |
 |:---:|:---|:---|
 | 🕵️ | **Investigative Mode** | On by default. The swarm hunts non-obvious connections — biographical/family background, institutional and political ties, timeline coincidences, primary sources, documented-but-underemphasized facts — instead of the canonical summary. Distinguishes established fact from documented-but-obscure from informed inference. Toggle off for a plain encyclopedic pass. |
-| 🗣️ | **Exploratory interrogation** | The dossier chat has a **Strict / Exploratory** toggle. Exploratory (default) lets the analyst reason *beyond* the dossier with its own knowledge — surfacing connections the report missed — while clearly labeling what's dossier-fact vs. inference. Strict stays dossier-only. |
+| 🗣️ | **Exploratory interrogation** | The dossier chat has a **Strict / Exploratory** toggle. Exploratory (default, with grounding on) can **search the web live** to answer — the analyst reasons *beyond* the dossier, pulls in fresh sources, and labels what's dossier-fact vs. inference. Strict stays dossier-only. |
 | ✍️ | **Editable prompts** | Every system prompt — orchestrator, specialist, report writer, both interrogation modes, and the investigative directive — is editable in the config panel (with per-prompt reset), so you can retune the swarm's disposition per topic. |
-| 🌐 | **Web-Grounded Research** | On by default. Put the swarm on the live internet. Gemini specialists use native Google Search grounding; other providers (incl. local) use Brave/Serply search injected into their prompts. Every run cites real sources and the report ends with a consolidated **Sources** section. Toggle per run. |
+| 🌐 | **Web-Grounded Research** | On by default. Put the swarm on the live internet. **Tool-capable models** (OpenAI, Anthropic, most OpenRouter/local models) get a real `web_search` **function tool** and search *agentically* — multiple queries as they reason. **Gemini** uses native Google Search grounding. Models that can't use tools fall back to a one-shot search + inject (never a hallucinated answer). Backends cascade **SearXNG → Brave → Serply**. Every run cites real sources. |
 | 🔭 | **Dossier Lenses** | Re-render the finished report for different audiences — Executive Brief, Deep-Dive, ELI5, Skeptic's Cut, Slide Outline — without re-running the swarm. Streams once, then cached; switch instantly. |
 | 🎬 | **Swarm Director** | After the orchestrator designs the swarm, review it before launch: rename specialists, rewrite their directives, delete weak angles, add your own, or re-roll the whole swarm. Human-in-the-loop control. |
 | 🕸️ | **Live Swarm Constellation** | An animated node-graph view of the swarm — specialist nodes orbit a central core, edges crackle with energy as each agent streams, and everything converges when synthesis ignites. Toggle between Constellation and Grid. |
@@ -333,11 +333,15 @@ cognitive-swarm-engine/
 - [x] Human-in-the-loop swarm editing (Swarm Director)
 - [x] Live swarm graph visualization (Constellation)
 - [x] Conversational dossier Q&A (Interrogate the Swarm)
-- [x] Web-grounded research with citations (native Gemini + Brave/Serply)
+- [x] Web-grounded research with citations (native Gemini + Brave/Serply/SearXNG)
 - [x] Audience lenses for the dossier
-- [ ] Export dossier to PDF
-- [ ] Persist Q&A threads with run history
+- [x] Investigative mode + exploratory (web-searching) interrogation
+- [x] Agentic tool-use web search (real `web_search` function tool)
+- [x] Editable prompts in the config panel
+- [x] Export dossier to PDF + full research bundle
+- [x] Persist Q&A threads with run history
 - [ ] Shareable run permalinks
+- [ ] Live search activity in the telemetry HUD
 
 ---
 
