@@ -55,8 +55,10 @@ flowchart LR
     Q([🔎 Research Query]) --> O
 
     subgraph STAGE1[" ① ORCHESTRATION "]
-        O[Orchestrator Node<br/>designs 5–8 specialists]
+        O[Orchestrator<br/>designs 5–8 specialists]
     end
+
+    O --> R[🎬 Swarm Director<br/>review + launch]
 
     subgraph STAGE2[" ② PARALLEL SWARM "]
         direction TB
@@ -68,16 +70,16 @@ flowchart LR
     end
 
     subgraph STAGE3[" ③ SYNTHESIS "]
-        S[Synthesizer Node<br/>compiles the dossier]
+        S[Report Writer<br/>compiles the dossier]
     end
 
-    O --> A1 & A2 & A3 & A4 & A5
+    R --> A1 & A2 & A3 & A4 & A5
     A1 & A2 & A3 & A4 & A5 --> S
-    S --> D([📄 Markdown Dossier])
+    S --> D([📄 Dossier + follow-up chat])
 
     classDef stage fill:#1c1917,stroke:#a45d12,color:#f2b035;
     classDef agent fill:#0b0908,stroke:#6d3d14,color:#fde68a;
-    class O,S stage;
+    class O,S,R stage;
     class A1,A2,A3,A4,A5 agent;
 ```
 
@@ -100,13 +102,16 @@ sequenceDiagram
     S->>L: "Design 5–8 specialists"
     L-->>S: JSON agent profiles
     S-->>C: validated + de-duped agents
+    C-->>U: Swarm Director — review / edit
+    U->>C: Launch
 
     par Parallel swarm execution
         C->>S: POST /api/execute (agent A)
-        S-->>C: stream tokens ▓▓▓░
+        S->>L: reason + web_search (agentic)
+        S-->>C: stream findings ▓▓▓░
     and
         C->>S: POST /api/execute (agent B)
-        S-->>C: stream tokens ▓▓░░
+        S-->>C: stream findings ▓▓░░
     end
 
     C->>S: POST /api/synthesize (successful results)
@@ -123,18 +128,17 @@ sequenceDiagram
 | | Feature | Description |
 |:---:|:---|:---|
 | 🕵️ | **Investigative Mode** | On by default. The swarm hunts non-obvious connections — biographical/family background, institutional and political ties, timeline coincidences, primary sources, documented-but-underemphasized facts — instead of the canonical summary. Distinguishes established fact from documented-but-obscure from informed inference. Toggle off for a plain encyclopedic pass. |
-| 🗣️ | **Exploratory interrogation** | The dossier chat has a **Strict / Exploratory** toggle. Exploratory (default, with grounding on) can **search the web live** to answer — the analyst reasons *beyond* the dossier, pulls in fresh sources, and labels what's dossier-fact vs. inference. Strict stays dossier-only. |
+| 💬 | **Interrogate the Swarm** | Chat with your finished dossier — multi-turn, cited, and **saved with the run** (restored from history). A **Strict / Exploratory** toggle controls grounding: Exploratory (default) can **search the web live** and reason *beyond* the dossier, labeling dossier-fact vs. inference; Strict stays dossier-only. |
 | ✍️ | **Editable prompts** | Every system prompt — orchestrator, specialist, report writer, both interrogation modes, and the investigative directive — is editable in the config panel (with per-prompt reset), so you can retune the swarm's disposition per topic. |
 | 🌐 | **Web-Grounded Research** | On by default. Put the swarm on the live internet. **Tool-capable models** (OpenAI, Anthropic, most OpenRouter/local models) get a real `web_search` **function tool** and search *agentically* — multiple queries as they reason. **Gemini** uses native Google Search grounding. Models that can't use tools fall back to a one-shot search + inject (never a hallucinated answer). Backends cascade **SearXNG → Brave → Serply**. Every run cites real sources. |
 | 🔭 | **Dossier Lenses** | Re-render the finished report for different audiences — Executive Brief, Deep-Dive, ELI5, Skeptic's Cut, Slide Outline — without re-running the swarm. Streams once, then cached; switch instantly. |
 | 🎬 | **Swarm Director** | After the orchestrator designs the swarm, review it before launch: rename specialists, rewrite their directives, delete weak angles, add your own, or re-roll the whole swarm. Human-in-the-loop control. |
 | 🕸️ | **Live Swarm Constellation** | An animated node-graph view of the swarm — specialist nodes orbit a central core, edges crackle with energy as each agent streams, and everything converges when synthesis ignites. Toggle between Constellation and Grid. |
-| 💬 | **Interrogate the Swarm** | Chat with your finished dossier. Ask follow-ups answered live by an analyst grounded strictly in the specialist findings — multi-turn, cited, and honest about what the research didn't cover. |
 | 🎛️ | **Per-role model routing** | Assign a distinct provider + model to the orchestrator, specialist swarm, and synthesizer independently. |
 | 📡 | **Live telemetry HUD** | Each agent streams its research in real time. Expand any card to read the full markdown output. |
 | ⏹️ | **Halt control** | Abort an in-flight run at any stage — orchestration, swarm, or synthesis — via a single `AbortController`. |
-| 📋 | **Dossier export** | Copy to clipboard or download as `.md`. GitHub-flavored tables render correctly. |
-| 🕓 | **Run history** | Your last 20 completed runs persist in `localStorage` and reload with one click. |
+| 📤 | **Export & archive** | Copy or download the dossier as `.md`, **Print / Save as PDF**, or export a **full research bundle** (dossier + every specialist's findings + the Q&A) as one archival markdown file. |
+| 🕓 | **Run history** | Your last 20 completed runs (with their dossier and Q&A) persist in `localStorage` and reload with one click. |
 | 🎨 | **CRT-phosphor UI** | Dark-only, fully responsive, amber-on-black aesthetic with scanlines, glow, and a blinking stream cursor. |
 | 🛡️ | **Resilient by design** | Per-request timeouts, mid-stream failure detection, and orchestrator-output validation. |
 
@@ -265,13 +269,13 @@ Open the **⚙ Config** panel (top-right) to wire up providers and assign models
 
 ## 🎮 Usage
 
-1. Type a research vector, e.g. _"Analyze the socio-economic impacts of asteroid mining by 2050."_
+1. Type a research vector, e.g. _"Analyze the socio-economic impacts of asteroid mining by 2050."_ Toggle **Investigative** and **Web-Grounded** as desired.
 2. Press <kbd>Enter</kbd> or click **Initialize**.
 3. **Review the swarm** in the Director — edit directives, add/remove specialists, or re-roll — then hit **Launch Swarm**.
 4. Watch the swarm stream in the **Constellation** (or flip to **Grid**). Hit **Halt** to abort.
-5. Read, <kbd>Copy</kbd>, or **Download** the compiled dossier.
-6. **Interrogate the Swarm** — ask follow-up questions grounded in the findings.
-7. Revisit any past run from **Run History**.
+5. Read the dossier; reframe it through a **Lens** (Executive Brief, ELI5, Skeptic's Cut…); then <kbd>Copy</kbd>, **Download `.md`**, **Print / PDF**, or export a **full research bundle**.
+6. **Interrogate the Swarm** — ask follow-ups (Exploratory can search the web; Strict stays dossier-only). The conversation is saved with the run.
+7. Revisit any past run — dossier and Q&A — from **Run History**.
 
 > [!NOTE]
 > The orchestrator decides the swarm composition dynamically per query — the agents in your run will differ from the illustration above.
@@ -285,12 +289,13 @@ cognitive-swarm-engine/
 ├── server.ts                     # Express API + unified multi-provider LLM layer
 │   ├── /api/models               #   → list available models per provider
 │   ├── /api/orchestrate          #   → design + validate the agent swarm
-│   ├── /api/execute              #   → stream one specialist's research
+│   ├── /api/execute              #   → one specialist's research (agentic web_search or native grounding)
 │   ├── /api/synthesize           #   → compile the final dossier (streamed)
-│   ├── /api/interrogate          #   → answer follow-ups grounded in the dossier
+│   ├── /api/interrogate          #   → follow-up Q&A (strict, or exploratory + web search)
 │   └── /api/lens                 #   → re-render the dossier for a different audience
 ├── src/
 │   ├── App.tsx                   # Pipeline state machine + layout
+│   ├── prompts.ts                # Editable prompt defaults (single source of truth)
 │   ├── types.ts                  # Shared type contracts
 │   ├── index.css                 # CRT-phosphor theme + Tailwind
 │   └── components/
